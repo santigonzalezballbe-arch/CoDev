@@ -106,7 +106,7 @@ test('the MCP server answers and its tools work', async () => {
   p.kill();
   lines.sort((a, b) => a.id - b.id);
   assert.equal(lines[0].result.serverInfo.name, 'codev');
-  assert.equal(lines[1].result.tools.length, 5);
+  assert.equal(lines[1].result.tools.length, 7);
   assert.match(lines[2].result.content[0].text, /Claimed: src\/Profile\.jsx/);
   assert.match(lines[3].result.content[0].text, /Ana/);
 });
@@ -145,4 +145,110 @@ test('terminals are relayed and late joiners get the snapshot', async () => {
   assert.ok(marc.msgs.findLast((m) => m.t === 'terms').list.length === 0, 'when it closes, the terminal goes away');
   marc.ws.close();
   late.ws.close();
+});
+
+test('a turn that changed files must be logged in codev/history before it ends', async () => {
+  const sid = { session_id: 'turn-test' };
+  await hook(dirB, { ...sid, hook_event_name: 'UserPromptSubmit', prompt: 'Rename the button' });
+  // codev/ is never claimed, so teammates never wait for each other's logs
+  const pre = await hook(dirB, { ...sid, hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: 'codev/history/marc.md', content: 'x' } });
+  assert.equal(pre.out, '');
+  assert.ok(!(await state()).claims.some((c) => c.file.startsWith('codev/')));
+
+  await hook(dirB, { ...sid, hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/button.js', old_string: 'a', new_string: 'b' } });
+  const blocked = JSON.parse((await hook(dirB, { ...sid, hook_event_name: 'Stop' })).out);
+  assert.equal(blocked.decision, 'block');
+  assert.match(blocked.reason, /codev\/history\/marc\.md/);
+  assert.match(blocked.reason, /src\/button\.js/);
+
+  // Already continuing because of this hook: let it finish instead of looping
+  assert.equal((await hook(dirB, { ...sid, hook_event_name: 'Stop', stop_hook_active: true })).out, '');
+
+  await hook(dirB, { ...sid, hook_event_name: 'UserPromptSubmit', prompt: 'Rename it again' });
+  await hook(dirB, { ...sid, hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/button.js', old_string: 'b', new_string: 'c' } });
+  await hook(dirB, { ...sid, hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: 'codev/history/marc.md', content: '## log' } });
+  assert.equal((await hook(dirB, { ...sid, hook_event_name: 'Stop' })).out, '', 'logged: it may finish');
+});
+
+test('every session starts with the CoDev rules, even alone in the room', async () => {
+  const solo = fs.mkdtempSync(path.join(os.tmpdir(), 'codev-solo-'));
+  fs.writeFileSync(path.join(solo, '.codev.json'), JSON.stringify({ server: base, room: 'solo-room', name: 'Zoe' }));
+  const ctx = JSON.parse((await hook(solo, { hook_event_name: 'SessionStart' })).out).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /codev\/history\/zoe\.md/);
+});
+
+test("Claude's replies reach the room once, and so does a request for attention", async () => {
+  const transcript = path.join(dirA, 'transcript.jsonl');
+  const line = (o) => fs.appendFileSync(transcript, JSON.stringify(o) + '\n');
+  line({ type: 'user', message: { role: 'user', content: 'An old prompt' } });
+  line({ type: 'assistant', message: { content: [{ type: 'text', text: 'An old answer' }] } });
+  line({ type: 'user', message: { role: 'user', content: 'Add a dark mode' } });
+  line({ type: 'assistant', message: { content: [{ type: 'text', text: 'I will look at the CSS first.' }, { type: 'tool_use', name: 'Read' }] } });
+  line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: '...' }] } });
+
+  const sid = { session_id: 'replies', transcript_path: transcript };
+  await hook(dirA, { ...sid, hook_event_name: 'UserPromptSubmit', prompt: 'Add a dark mode' });
+  await hook(dirA, { ...sid, hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: 'style.css' } });
+  line({ type: 'assistant', message: { content: [{ type: 'text', text: 'Done: **dark mode** follows the system setting.' }] } });
+  await hook(dirA, { ...sid, hook_event_name: 'Stop' });
+  await hook(dirA, { ...sid, hook_event_name: 'Notification', message: 'Claude needs your permission to use Bash' });
+
+  const evs = (await state()).events.filter((e) => e.member === 'Ana');
+  assert.deepEqual(evs.filter((e) => e.kind === 'reply').map((e) => e.summary), ['I will look at the CSS first.', 'Done: **dark mode** follows the system setting.']);
+  assert.equal(evs.findLast((e) => e.kind === 'attention').summary, 'Claude needs your permission to use Bash');
+});
+
+/** Runs one MCP tool call in project `cwd` and returns its text. */
+async function mcpCall(cwd, name, args = {}) {
+  const p = spawn(process.execPath, [CLI, 'mcp'], { cwd });
+  let buf = '';
+  const done = new Promise((resolve) => {
+    p.stdout.on('data', (d) => {
+      buf += d;
+      for (const line of buf.split('\n').filter(Boolean)) {
+        try {
+          const m = JSON.parse(line);
+          if (m.id === 2) resolve(m.result.content[0].text);
+        } catch {}
+      }
+    });
+  });
+  p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) + '\n');
+  p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } }) + '\n');
+  const text = await done;
+  p.kill();
+  return text;
+}
+
+test('the AIs can read the chat and search the whole history', async () => {
+  const note = (body) => fetch(`${base}/api/rooms/test/note`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  await note({ member: 'Laura', text: 'Team: we freeze the API until Friday' });
+  await note({ member: 'Ana', to: 'Laura', text: 'Ok for me' });
+
+  // A message to everyone reaches every AI with its next prompt (not only messages addressed to it)
+  const ctx = JSON.parse((await hook(dirB, { hook_event_name: 'UserPromptSubmit', prompt: 'Next task' })).out).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /we freeze the API until Friday/);
+  assert.match(ctx, /codev_search_history/);
+
+  const chat = await mcpCall(dirB, 'codev_read_chat');
+  assert.match(chat, /Laura wrote to everyone: Team: we freeze the API until Friday/);
+  assert.match(chat, /Ana wrote to Laura: Ok for me/);
+
+  const who = await mcpCall(dirB, 'codev_search_history', { query: 'auth.js', kind: 'edit' });
+  assert.match(who, /Ana changed: Edited src\/auth\.js/);
+  const prompts = await mcpCall(dirB, 'codev_search_history', { person: 'ana', kind: 'prompt' });
+  assert.match(prompts, /Ana asked Claude: Build the login/);
+  assert.equal(await mcpCall(dirB, 'codev_search_history', { query: 'nothing-like-this' }), 'Nothing in the history matches that.');
+});
+
+test('history search also reads the project history file the app keeps', async () => {
+  const file = path.join(dirB, '.codev', 'history.jsonl');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const old = Date.now() - 3 * 24 * 3_600_000;
+  fs.appendFileSync(file, JSON.stringify({ room: 'test', ts: old, member: 'Marc', kind: 'prompt', summary: 'Migrate the database to Postgres' }) + '\n');
+  fs.appendFileSync(file, JSON.stringify({ room: 'other', ts: old, member: 'Marc', kind: 'prompt', summary: 'Something in another room' }) + '\n');
+  const found = await mcpCall(dirB, 'codev_search_history', { query: 'postgres' });
+  assert.match(found, /Marc asked Claude: Migrate the database to Postgres/);
+  assert.equal(await mcpCall(dirB, 'codev_search_history', { query: 'another room' }), 'Nothing in the history matches that.', 'other rooms stay out');
+  assert.equal(await mcpCall(dirB, 'codev_search_history', { query: 'postgres', since_hours: 24 }), 'Nothing in the history matches that.');
 });

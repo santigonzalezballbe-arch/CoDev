@@ -112,7 +112,7 @@ export function attachTerminals(httpServer, { authorized = () => true, guests = 
         case 'term-typing': {
           // Someone is typing in their terminal (never the content): drives the "typing" character state.
           if (!t || !owned.has(m.id)) return;
-          broadcast(room, { t: 'term-typing', id: m.id }, ws);
+          broadcast(room, { t: 'term-typing', id: m.id, done: !!m.done }, ws);
           return;
         }
         case 'term-resize': {
@@ -136,7 +136,9 @@ export function attachTerminals(httpServer, { authorized = () => true, guests = 
           if (!member) return deny('Enter the room with your name first.');
           if (guestIds.size >= 2) return deny('You already have two terminals open.');
           guestIds.add(m.id);
-          guests.open({ room: room.id, member, id: m.id, cols: m.cols | 0 || 80, rows: m.rows | 0 || 24 }, (msg) => {
+          // A second terminal of the same visitor carries a name of its own: "Laura · tests".
+          const label = typeof m.label === 'string' ? m.label.replace(/·/g, '').replace(/\s+/g, ' ').trim().slice(0, 20) : '';
+          guests.open({ room: room.id, member: label ? `${member} · ${label}` : member, id: m.id, cols: m.cols | 0 || 80, rows: m.rows | 0 || 24 }, (msg) => {
             if (msg.t === 'guest-denied' || msg.t === 'guest-exit') guestIds.delete(m.id);
             send(ws, msg);
           });

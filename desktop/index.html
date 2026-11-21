@@ -103,20 +103,55 @@
       <button id="share" class="bar-btn quiet" hidden></button>
       <button id="add-claude" class="bar-btn" title="Open another Claude Code session of your own">Another Claude</button>
       <a id="get-app" class="bar-btn quiet web-only" href="https://github.com/santigonzalezballbe-arch/CoDev#desktop-app-recommended" target="_blank">Get the app</a>
-      <form id="note-form" class="note-form">
-        <select id="note-to" aria-label="Recipient"></select>
-        <input id="note-text" placeholder="Note to the team" autocomplete="off" />
-        <button type="submit" class="bar-btn">Send</button>
-      </form>
+      <div id="view-switch" class="view-switch" role="radiogroup" aria-label="View">
+        <button type="button" data-view="terminal" role="radio">Terminal</button>
+        <button type="button" data-view="convo" role="radio">Conversation</button>
+      </div>
+      <button id="chat-btn" class="bar-btn chat-btn">Chat</button>
       <span id="conn" class="conn">Offline</span>
     </header>
     <div id="alert" class="alert" hidden></div>
+
+    <!-- Naming another Claude of yours: "Ana · tests" instead of "Ana 2". -->
+    <div id="new-claude" class="new-claude" hidden role="dialog" aria-labelledby="nc-title">
+      <form id="new-claude-form">
+        <h2 id="nc-title" class="nc-title">Name this Claude</h2>
+        <p class="nc-help">It shows next to your name, so the team knows what each of your Claudes is on.</p>
+        <input id="nc-name" maxlength="20" autocomplete="off" spellcheck="false" aria-label="Name" />
+        <div id="nc-chips" class="nc-chips"></div>
+        <p id="nc-error" class="nc-error" hidden></p>
+        <div class="nc-actions">
+          <button type="button" id="nc-cancel" class="bar-btn quiet">Cancel</button>
+          <button type="submit" class="bar-btn">Open</button>
+        </div>
+      </form>
+    </div>
     <div id="request" class="request" hidden>
       <p id="request-text"></p>
       <button id="request-allow" class="bar-btn">Allow</button>
       <button id="request-deny" class="bar-btn quiet">Deny</button>
     </div>
     <section id="panes" class="panes"></section>
+
+    <!-- Chat: people and their AIs. A message to someone also reaches their Claude at its next prompt. -->
+    <aside id="chat" class="chat" hidden aria-label="Chat">
+      <header class="chat-head">
+        <div class="chat-head-top">
+          <h2 class="chat-title">Chat</h2>
+          <button id="chat-close" class="chat-close" title="Close the chat">Close</button>
+        </div>
+        <div id="chat-people" class="chat-people" aria-label="In the room"></div>
+      </header>
+      <div id="chat-list" class="chat-list" aria-live="polite"></div>
+      <form id="note-form" class="chat-form">
+        <div id="note-to" class="to-chips" role="radiogroup" aria-label="Send to"></div>
+        <div class="compose">
+          <textarea id="note-text" rows="1" placeholder="Write a message" autocomplete="off"></textarea>
+          <button type="submit" class="send">Send</button>
+        </div>
+        <p class="compose-hint">Their Claude reads the messages sent to them at its next prompt. Shift+Enter for a new line.</p>
+      </form>
+    </aside>
 
     <!-- History: every prompt, change, command and note of the room, from the local file. -->
     <section id="history" class="history" hidden aria-label="History">

@@ -23,12 +23,16 @@ npm run app
 
 What you will find:
 - **Your terminal** (left): a real Claude Code. You type in it as usual. `Ctrl+Shift+C` copies the selection.
-- **Your teammates' terminals** (right): live, read-only replicas with the same columns and rows as the original.
-- **The character** above each terminal shows its state: *working*, *typing*, *waiting*, *asleep*, *stopped by CoDev* or *offline*. Typing is detected without ever sending what you type.
-- **Another Claude**: opens another session of your own. Each session counts as its own agent ("Alex 2"...) with its own claimed files.
+- **Your teammates' terminals** (right): live, read-only replicas with the same columns and rows as the original, scaled to fill their window.
+- **Two views**, for all windows from the top bar or one window at a time from its header:
+  - **Terminal**: the real Claude Code. Text grows with the window (13 to 22 px), so big screens stay readable.
+  - **Conversation**: each Claude as a chat. Prompts, Claude's replies with formatting, what it did (with diffs), and a clear call when it needs you (*Answer in the terminal*). Your own windows have a box to write prompts. Replies come from the transcript Claude Code keeps for each session (`transcript_path`), read by the hooks.
+- **The character** above each terminal shows its state: *working*, *typing*, *waiting*, *asleep*, *stopped by CoDev* or *offline*. Typing counts only real keys and pastes (not the focus and mouse reports a terminal sends by itself), and is shared without ever sending what you type. *Working* needs sustained output, like Claude's spinner, not a single redraw.
+- **Another Claude**: opens another session of your own. You give it a name (a suggestion like *Nova*, or what it is on: *frontend*, *tests*...), and it shows as "Alex · tests" in your colour. Each session is its own agent with its own claimed files.
 - **Invite**: copies a one-line invite link with the server, the room and the room key. Opened in a browser, the page offers to open the CoDev app (through a `codev://` link) and the app jumps straight into the join screen of that room. Without the app, the same page lets you watch the room in the browser. Pasting the link into the app's join screen also fills in everything.
 - **Share online / Stop sharing online**: the room's host can open or close the internet link at any time.
-- **Notes**: the top bar sends messages to one teammate or the whole team. The AIs can send notes too.
+- **Chat**: a side panel with the room's conversation: people, notes from the AIs and CoDev's alerts. Write to everyone or to one person (also people watching from a browser); their Claude reads the messages sent to them at its next prompt. It shows unread messages, keeps the conversation in the history file, and sends a desktop notification when CoDev is in the background.
+- **Colours**: the interface is black and white; only the Claude Code terminals (which keep their own colours) and people have colour. The server gives everyone in a room a different colour, the same on every screen: their name, their character, and their messages in the chat and the history.
 - **Alerts**: when CoDev stops an AI because it was about to touch someone else's file, a banner appears.
 - **History**: every prompt (in full), change (with its diff), command, note and conflict in the room, grouped by day, with search and filters by person and kind. The app saves it to `.codev/history.jsonl` in the project folder: one JSON object per line, kept across restarts, git-ignored, easy to grep or import. **Show the file** opens its folder. A browser shows the room's recent activity only.
 
@@ -99,14 +103,27 @@ The first time, Claude Code asks whether you trust the folder, because it has ho
 
 Use Claude Code as usual. `codev status` shows what your teammates are doing.
 
+## The `codev/` folder: a project log written by the AIs
+
+CoDev tells every Claude in the room to keep a log **inside the repository**, so the whole team (and anyone who clones the project later) can read what was done and why:
+
+- After any task that changes files, Claude appends an entry to `codev/history/<name>.md`: when, what was asked, what changed and why, and what is left to do. It commits it with the rest of its changes.
+- Each person's AI writes only its own file, so the logs are never locked and never conflict when you merge.
+- Before starting a task, Claude is told to read its teammates' logs in `codev/history/`.
+- If a turn changed files but Claude did not write its entry, CoDev's `Stop` hook asks it to write it before finishing (once per turn, so it can never get stuck).
+- `codev init` and the app create `codev/README.md` explaining the folder.
+
+This is the shared, human-readable log; `.codev/history.jsonl` (with a dot, git-ignored) is each person's complete local record.
+
 ## What each hook does
 
 | Claude Code hook | What CoDev does |
 |---|---|
-| `SessionStart` / `UserPromptSubmit` | Publishes your prompt as the "current task" and gives the AI the team summary |
-| `PreToolUse` (Edit/Write/MultiEdit/NotebookEdit) | Claims the file. If it belongs to someone else, **denies** the edit and explains why |
+| `SessionStart` / `UserPromptSubmit` | Publishes your prompt as the "current task" and gives the AI CoDev's rules (the `codev/` log) and the team summary |
+| `PreToolUse` (Edit/Write/MultiEdit/NotebookEdit) | Claims the file (except anything in `codev/`). If it belongs to someone else, **denies** the edit and explains why |
 | `PostToolUse` | Publishes the action (with a diff if it is an edit) |
-| `Stop` | Marks your AI as "waiting" |
+| `Notification` | Publishes Claude's requests for attention (a permission, a question): the character shows *needs you* |
+| `Stop` | If files changed but the `codev/` log was not written, asks Claude to write it first; then marks your AI as "waiting" |
 | `SessionEnd` | Releases your files |
 
 If the server does not answer, the hooks do nothing: CoDev never blocks your work because of its own failure. Claims expire after 20 minutes without activity.
@@ -115,7 +132,9 @@ If the server does not answer, the hooks do nothing: CoDev never blocks your wor
 
 - `codev_team_status`: what your teammates are doing.
 - `codev_claim_files` / `codev_release_files`: reserve or release files ahead of time.
-- `codev_send_note`: send a note to a teammate (they see it on screen and their AI receives it).
+- `codev_send_note`: send a message to the chat, to one teammate or everyone (they see it on screen and their AI receives it).
+- `codev_read_chat`: read the room's chat: messages between people and AIs, and CoDev's alerts.
+- `codev_search_history`: search every prompt, Claude reply, change, command and message, by words, person, kind and time ("who changed src/auth.js and why?"). It combines what the server keeps with the project's `.codev/history.jsonl`.
 - `codev_set_intent`: announce the current plan.
 
 ## Other AIs (Cursor, Copilot...)

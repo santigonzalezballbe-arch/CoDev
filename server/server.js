@@ -88,7 +88,10 @@ async function handleApi(req, res, roomId, action) {
 
   if (req.method === 'GET' && action === 'state') {
     room.pruneClaims();
-    return sendJson(res, 200, room.snapshot());
+    const snap = room.snapshot();
+    // ?events=all: everything the server still keeps (the MCP tools search it).
+    if (url.searchParams.get('events') === 'all') snap.events = room.events;
+    return sendJson(res, 200, snap);
   }
 
   if (req.method === 'GET' && action === 'stream') {
@@ -150,7 +153,8 @@ async function handleApi(req, res, roomId, action) {
       const ev = room.addEvent(name, {
         kind: clip(String(body.kind || 'tool'), 30),
         tool: clip(body.tool, 60),
-        summary: clip(String(body.summary || ''), 400),
+        // Claude's replies are kept whole for the chat view; other activity is one line.
+        summary: clip(String(body.summary || ''), body.kind === 'reply' ? 8000 : 400),
         files,
         diff: body.diff
           ? { old: clip(body.diff.old, 4000) || '', new: clip(body.diff.new, 4000) || '' }

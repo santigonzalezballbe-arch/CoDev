@@ -12,6 +12,7 @@ const HOOK_EVENTS = {
   PreToolUse: 'Edit|Write|MultiEdit|NotebookEdit',
   PostToolUse: '*',
   Stop: null,
+  Notification: null,
   SessionEnd: null,
 };
 
@@ -64,11 +65,32 @@ function installMcp(root, env = process.env) {
   }
 }
 
+/** codev/ in the repository: each person's AI keeps its own log there (see projectRules). */
+function ensureCodevFolder(root) {
+  const readme = path.join(root, 'codev', 'README.md');
+  if (fs.existsSync(readme)) return;
+  fs.mkdirSync(path.join(root, 'codev', 'history'), { recursive: true });
+  fs.writeFileSync(
+    readme,
+    `# codev/
+
+This folder is kept by the AIs of everyone working on this project with [CoDev](https://github.com/santigonzalezballbe-arch/CoDev).
+
+- \`history/<name>.md\`: one log per person. After every task that changes files, that person's Claude appends an entry:
+  when, what was asked, what changed and why, and what is left to do.
+
+Each person writes only their own file, so the logs never block each other and never conflict when you merge.
+Commit this folder with the rest of the project so the whole team can read it.
+`
+  );
+}
+
 /** Prepares a project for CoDev. Used by both `codev init` and the desktop app. */
 export async function setupProject({ root, server, room, name, key = null, env }) {
   // .codev.json is git-ignored, so the room key never ends up in the repository.
   fs.writeFileSync(path.join(root, CONFIG_FILE), JSON.stringify({ server, room, name, ...(key && { key }) }, null, 2) + '\n');
   addToGitignore(root, [CONFIG_FILE, '.claude/settings.local.json', '.codev/']);
+  ensureCodevFolder(root);
   const hooksFile = installHooks(root);
   const mcpOk = installMcp(root, env);
   let reachable = false;

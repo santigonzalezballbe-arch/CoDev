@@ -114,11 +114,6 @@ button { cursor: pointer; }
 .bar-btn:active { transform: scale(0.97); }
 .bar-btn:focus-visible { outline: 3px solid var(--black); outline-offset: 3px; }
 
-.note-form { display: flex; align-items: center; gap: 12px; flex: 1; max-width: 620px; margin-left: auto; }
-.note-form select { font: 700 15px/1 var(--display); background: var(--white-2); border: 0; border-radius: 0; padding: 11px 10px; }
-.note-form input { flex: 1; min-width: 0; font: 400 18px/1.3 var(--text); background: transparent; border: 0; border-bottom: 2px solid #bbb; border-radius: 0; padding: 6px 0; }
-.note-form input:focus { outline: none; border-bottom-color: var(--black); }
-.note-form input::placeholder { color: #8a8a8a; }
 .conn { font: 700 14px/1 var(--display); white-space: nowrap; color: #8a8a8a; }
 .conn.on { color: var(--black); }
 
@@ -134,17 +129,21 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 .request .bar-btn.quiet { background: var(--black-2); color: var(--white); }
 
 /* Panes: a 6px white frame between terminals, square corners. */
-.panes { flex: 1; min-height: 0; display: grid; gap: 6px; padding: 0 6px 6px; background: var(--white); }
-.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--term); position: relative; }
+/* Every terminal is a window: a frame in its person's colour, white space between windows.
+   The window you are typing in gets a thicker frame. */
+.panes { flex: 1; min-height: 0; display: grid; gap: 12px; padding: 4px 12px 12px; background: var(--white); }
+.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--term); position: relative;
+  border: 3px solid var(--person, var(--black)); transition: box-shadow 160ms; }
+.pane:focus-within { box-shadow: 0 0 0 3px var(--person, var(--black)); }
 
 /* Header: the character and who it is. Yours is white; your teammates' are black. */
-.pane-head { --ink: var(--white); --ground: var(--black-2);
+/* The header lives inside the window, on the same black as the terminal. */
+.pane-head { --ink: var(--white); --ground: var(--term);
   display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center;
-  padding: 12px 18px 12px 14px; background: var(--ground); color: var(--ink); }
-.pane.local .pane-head { --ink: var(--black); --ground: var(--white-2); }
+  padding: 12px 16px 6px 12px; background: var(--ground); color: var(--ink); }
 .who-main { min-width: 0; display: grid; gap: 3px; }
 .who-line { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
-.who-name { font: 800 22px/1.05 var(--display); letter-spacing: -0.03em; white-space: nowrap; }
+.who-name { font: 800 21px/1 var(--display); letter-spacing: -0.03em; white-space: nowrap; background: var(--person); color: #0a0a0a; padding: 5px 9px 4px; }
 .who-state { font: italic 400 17px/1.2 var(--text); white-space: nowrap; }
 .intent { font-size: 16px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .intent.empty { opacity: 0.55; }
@@ -156,7 +155,7 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 .icon-btn:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); }
 
 /* ---------- The character (CoDev's own pixel art) ---------- */
-.bot { width: 80px; height: 58px; color: var(--ink); overflow: visible; display: block; }
+.bot { width: 80px; height: 58px; color: var(--person, var(--ink)); overflow: visible; display: block; }
 .bot rect { fill: currentColor; }
 .bot .cut { fill: var(--ground); }
 .bot .body { transform-box: view-box; transform-origin: 8px 14px; }
@@ -211,6 +210,77 @@ a.bar-btn { text-decoration: none; display: inline-block; }
   .big .line, .bot *, .bot { animation: none !important; }
 }
 
+/* ---------- Naming another Claude ---------- */
+/* It floats over the terminals, so it is the one place with a shadow. */
+.new-claude { position: absolute; top: 64px; z-index: 6; width: 360px; padding: 20px; background: var(--black); color: var(--white); box-shadow: 0 18px 40px #0007; animation: pop 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.nc-title { margin: 0; font: 800 24px/1.05 var(--display); letter-spacing: -0.02em; }
+.nc-help { margin: 8px 0 14px; font: 400 16px/1.45 var(--text); }
+#nc-name { width: 100%; font: 400 22px/1.3 var(--text); color: var(--white); background: transparent; border: 0; border-bottom: 2px solid #777; border-radius: 0; padding: 4px 0 8px; }
+#nc-name:focus { outline: none; border-bottom-color: var(--white); }
+.nc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 4px; }
+.nc-chip { font: 700 14px/1 var(--display); background: var(--black-2); color: var(--white); border: 0; border-radius: 0; padding: 8px 10px; transition: background 120ms, transform 120ms; }
+.nc-chip:hover { background: #333; }
+.nc-chip:active { transform: scale(0.96); }
+.nc-error { margin: 10px 0 0; font: 600 15px/1.4 var(--text); }
+.nc-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.nc-actions .bar-btn { background: var(--white); color: var(--black); }
+.nc-actions .bar-btn.quiet { background: var(--black-2); color: var(--white); }
+
+/* A second Claude of the same person: "Ana · tests" */
+.who-label { font: 800 21px/1 var(--display); letter-spacing: -0.03em; white-space: nowrap; }
+
+/* ---------- Person colours ---------- */
+/* Every name is a solid chip in that person's colour, with black text: readable on white and on black. */
+.person { display: inline-block; background: var(--person, #d6d6d6); color: #0a0a0a; font: 800 15px/1 var(--display); letter-spacing: -0.01em; padding: 5px 8px 4px; white-space: nowrap; }
+
+/* ---------- Chat ---------- */
+.chat-btn { margin-left: 0; }
+.chat-btn.unread { background: var(--black); color: var(--white); }
+.chat { position: absolute; top: 64px; right: 0; bottom: 0; width: min(440px, 100%); z-index: 4; background: var(--white); color: var(--black); display: flex; flex-direction: column; }
+.chat-head { display: grid; gap: 12px; padding: 18px 20px 16px; background: var(--black); color: var(--white); }
+.chat-head-top { display: flex; align-items: center; justify-content: space-between; }
+.chat-title { margin: 0; font: 800 30px/1 var(--display); letter-spacing: -0.03em; }
+.chat-close { font: 700 14px/1 var(--display); background: var(--black-2); color: var(--white); border: 0; border-radius: 0; padding: 9px 12px; }
+.chat-close:hover { background: #333; }
+.chat-people { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat-people .person.away { opacity: 0.45; }
+
+.chat-list { flex: 1; overflow-y: auto; padding: 18px 20px 8px; display: flex; flex-direction: column; }
+.chat-empty { margin: 8px 0; font: 400 18px/1.5 var(--text); }
+.chat-day { align-self: center; margin: 18px 0 10px; font: 700 13px/1 var(--display); color: #6b6b6b; }
+
+.group { display: grid; gap: 4px; margin: 10px 0; max-width: 88%; justify-items: start; }
+.group-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.group-tag { font: italic 400 14px/1.2 var(--text); }
+.group-time { font: 700 12px/1 var(--display); color: #6b6b6b; font-variant-numeric: tabular-nums; }
+.bubble { margin: 0; padding: 9px 12px 10px 14px; background: var(--white-2); border-left: 5px solid var(--person); font: 400 17px/1.45 var(--text); white-space: pre-wrap; overflow-wrap: anywhere; animation: pop 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.group.mine { align-self: end; justify-items: end; }
+.group.mine .bubble { background: var(--black); color: var(--white); border-left: 0; border-right: 5px solid var(--person); padding: 9px 14px 10px 12px; }
+.group.ai .bubble { font-style: italic; }
+.mini-bot { width: 26px; height: 19px; color: var(--person); }
+.mini-bot rect { fill: currentColor; }
+.mini-bot .cut { fill: var(--white); }
+.mini-bot .zz, .mini-bot .dot, .mini-bot .ant-on, .mini-bot .spark { display: none; }
+.system { align-self: center; max-width: 92%; margin: 12px 0; padding: 8px 12px; background: var(--black-2); color: var(--white); font: 400 15px/1.4 var(--text); text-align: center; animation: pop 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.system strong { font-weight: 600; }
+@keyframes pop { from { opacity: 0; transform: translateY(6px); } }
+
+.chat-form { display: grid; gap: 10px; padding: 14px 20px 16px; background: var(--white-2); }
+.to-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.to-chip { font: 800 14px/1 var(--display); border: 0; border-radius: 0; padding: 8px 10px 7px; background: var(--white); color: #0a0a0a; transition: background 120ms, transform 120ms; }
+.to-chip:hover { background: #d6d6d6; }
+.to-chip[aria-checked='true'] { background: var(--person, var(--black)); color: #0a0a0a; }
+.to-chip.everyone[aria-checked='true'] { background: var(--black); color: var(--white); }
+.to-chip:active { transform: scale(0.96); }
+.compose { display: flex; gap: 8px; align-items: end; }
+.compose textarea { flex: 1; min-height: 46px; max-height: 160px; font: 400 17px/1.4 var(--text); background: var(--white); border: 0; border-radius: 0; padding: 12px; resize: none; }
+.compose textarea:focus { outline: 2px solid var(--black); outline-offset: -2px; }
+.send { font: 800 15px/1 var(--display); background: var(--black); color: var(--white); border: 0; border-radius: 0; padding: 0 18px; height: 46px; transition: background 140ms, transform 120ms; }
+.send:hover { background: #333; }
+.send:active { transform: scale(0.96); }
+.compose-hint { margin: 0; font: 400 13px/1.4 var(--text); color: #5a5a5a; }
+@media (prefers-reduced-motion: reduce) { .bubble, .system { animation: none; } }
+
 /* ---------- History ---------- */
 .app { position: relative; }
 .history { position: absolute; inset: 64px 0 0 0; z-index: 5; background: var(--white); color: var(--black); display: flex; flex-direction: column; }
@@ -231,7 +301,7 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 .entry { display: grid; grid-template-columns: 64px 1fr; gap: 20px; padding: 14px 0; }
 .entry-time { font: 700 15px/1.5 var(--display); font-variant-numeric: tabular-nums; }
 .entry-who { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.entry-name { font: 800 17px/1.3 var(--display); }
+.entry-name { font: 800 15px/1 var(--display); background: var(--person); color: #0a0a0a; padding: 5px 8px 4px; }
 .entry-kind { font: italic 400 16px/1.3 var(--text); }
 .entry-text { margin: 4px 0 0; font: 400 17px/1.5 var(--text); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 90ch; }
 .entry.prompt .entry-text { font-size: 19px; }
@@ -243,6 +313,64 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 .entry pre .l { display: block; padding: 0 14px; white-space: pre; }
 .entry pre .add { color: var(--white); background: #2a2a2a; }
 .entry pre .del { color: #8a8a8a; text-decoration: line-through; }
+
+/* ---------- Views: terminal or conversation ---------- */
+.view-switch { display: flex; gap: 4px; margin-left: auto; }
+.view-switch button { font: 700 15px/1 var(--display); background: var(--white-2); color: var(--black); border: 0; border-radius: 0; padding: 12px 14px; transition: background 140ms, transform 120ms; }
+.view-switch button:hover { background: #d6d6d6; }
+.view-switch button[aria-checked='true'] { background: var(--black); color: var(--white); }
+.view-switch button:active { transform: scale(0.97); }
+
+.pane-body { flex: 1; min-height: 0; display: flex; position: relative; }
+.pane-body .term-wrap { flex: 1; }
+.convo { display: none; position: absolute; inset: 0; flex-direction: column; background: var(--white); color: var(--black); }
+.pane.view-convo .convo { display: flex; }
+.convo-list { flex: 1; overflow-y: auto; padding: 18px clamp(16px, 4%, 48px) 12px; display: flex; flex-direction: column; gap: 14px; }
+.convo-list > * { animation: pop 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.cv-empty { margin: 12px 0; max-width: 40ch; font: 400 19px/1.5 var(--text); }
+
+/* Your prompt: black, on the right, with the person's colour on its edge. */
+.cv-prompt { align-self: end; max-width: min(78%, 70ch); display: grid; gap: 6px; justify-items: end; }
+.cv-who { font: 800 13px/1 var(--display); background: var(--person); color: #0a0a0a; padding: 4px 7px 3px; }
+.cv-prompt p { margin: 0; padding: 11px 14px; background: var(--black); color: var(--white); border-right: 5px solid var(--person); font: 400 18px/1.5 var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Claude's reply: plain reading text with its character. */
+.cv-reply { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start; max-width: 80ch; }
+.cv-reply .mini-bot { width: 30px; height: 22px; margin-top: 4px; }
+.cv-md { font: 400 18px/1.6 var(--text); overflow-wrap: anywhere; min-width: 0; }
+.cv-md p { margin: 0 0 10px; }
+.cv-md p:last-child { margin-bottom: 0; }
+.cv-md .md-h { font: 800 19px/1.3 var(--display); letter-spacing: -0.01em; }
+.cv-md code { font: 0.86em 'JetBrains Mono', monospace; background: var(--white-2); padding: 1px 5px; }
+.cv-md .md-code { margin: 6px 0 12px; padding: 12px 14px; background: var(--black); color: #e6e6e6; font: 14px/1.55 'JetBrains Mono', monospace; overflow-x: auto; white-space: pre; }
+.cv-md .md-list { margin: 0 0 10px; padding-left: 22px; }
+.cv-md .md-list li { margin: 3px 0; }
+
+/* What Claude did: compact, quieter lines. */
+.cv-steps { display: grid; gap: 2px; margin-left: 42px; padding: 8px 12px; background: var(--white-2); max-width: 80ch; }
+.cv-step { font: 400 15px/1.45 var(--text); overflow-wrap: anywhere; }
+.cv-step.read, .cv-step.tool, .cv-step.web, .cv-step.plan, .cv-step.agent { opacity: 0.65; }
+.cv-steps details summary { cursor: pointer; font: 700 13px/1.6 var(--display); }
+.cv-steps pre { margin: 6px 0; padding: 10px 0; background: var(--black); color: #d5d5d5; font: 13px/1.55 'JetBrains Mono', monospace; overflow: auto; max-height: 300px; }
+.cv-steps pre .l { display: block; padding: 0 12px; white-space: pre; }
+.cv-steps pre .add { color: var(--white); background: #2a2a2a; }
+.cv-steps pre .del { color: #8a8a8a; text-decoration: line-through; }
+
+.cv-attention { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; background: var(--white-2); font: italic 400 16px/1.4 var(--text); }
+.cv-attention p { margin: 0; flex: 1; }
+.cv-attention.now { background: var(--person, var(--black)); color: #0a0a0a; font-style: normal; font-weight: 600; }
+.cv-system { align-self: center; padding: 8px 12px; background: var(--black-2); color: var(--white); font: 400 15px/1.4 var(--text); }
+
+.convo-working { padding: 0 clamp(16px, 4%, 48px) 10px; font: italic 400 16px/1.4 var(--text); }
+.convo-working .dots { display: inline-block; animation: dots-run 1.2s steps(4) infinite; overflow: hidden; vertical-align: bottom; width: 0; }
+@keyframes dots-run { to { width: 1.2em; } }
+.convo-form { display: flex; gap: 8px; align-items: end; padding: 12px clamp(16px, 4%, 48px) 16px; background: var(--white-2); }
+.convo-form textarea { flex: 1; min-height: 48px; max-height: 200px; font: 400 18px/1.4 var(--text); background: var(--white); border: 0; border-radius: 0; padding: 12px; resize: none; }
+.convo-form textarea:focus { outline: 2px solid var(--black); outline-offset: -2px; }
+
+/* needs you: the antenna blinks and the character waves */
+.st-asking .ant-on { animation: flash 0.5s steps(2) infinite; }
+.st-asking .arm-r { animation: tap 0.5s steps(2) infinite; }
 
 /* ---------- Terminals ---------- */
 .term-wrap { flex: 1; min-height: 0; padding: 8px 6px 4px 12px; overflow: hidden; position: relative; }

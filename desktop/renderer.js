@@ -19,10 +19,10 @@ const api = window.codev || {
   copy: (text) => navigator.clipboard?.writeText(text).catch(noop),
   ghRepos: async () => ({ ok: false, repos: [] }),
   repoStatus: async () => ({ valid: false }),
-  ptyCreate: ({ id, cols, rows }) =>
+  ptyCreate: ({ id, cols, rows, env }) =>
     new Promise((resolve, reject) => {
       guestPending.set(id, { resolve, reject });
-      wsSend({ t: 'guest-open', id, cols, rows });
+      wsSend({ t: 'guest-open', id, cols, rows, label: splitMember(env?.CODEV_NAME || '')[1] });
     }),
   ptyWrite: (id, d) => wsSend({ t: 'guest-input', id, d }),
   ptyResize: (id, cols, rows) => wsSend({ t: 'guest-resize', id, cols, rows }),
@@ -112,6 +112,9 @@ const THEME = {
   black: '#1b1f2c', red: '#ff6b6b', green: '#4dd0a1', yellow: '#ffd166', blue: '#7c9cff', magenta: '#e57bd8', cyan: '#5ec8f2', white: '#d5d8e3',
   brightBlack: '#5c6278', brightRed: '#ff8a8a', brightGreen: '#7ee2bd', brightYellow: '#ffe08f', brightBlue: '#a3b8ff', brightMagenta: '#f0a3e6', brightCyan: '#8fdcf7', brightWhite: '#ffffff',
 };
+/** Text grows with the window: about 130 columns, never smaller than 13 px nor larger than 22 px. */
+const fontFor = (width) => Math.max(13, Math.min(22, Math.round(width / 80)));
+
 const TERM_OPTS = {
   fontFamily: '"JetBrains Mono", "DejaVu Sans Mono", "Noto Sans Mono", "Noto Color Emoji", monospace',
   fontSize: 13,
@@ -452,14 +455,10 @@ function openWorkspace() {
   });
   renderShare();
   $('#share').addEventListener('click', toggleShare);
-  $('#add-claude').addEventListener('click', () => addLocal());
-  $('#note-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const text = $('#note-text').value.trim();
-    if (!text) return;
-    $('#note-text').value = '';
-    post('note', { text, to: $('#note-to').value || null, from: 'human' });
-  });
+  $('#add-claude').addEventListener('click', () => ([...S.panes.values()].some((p) => p.local) ? openNewClaude() : addLocal()));
+  setupNewClaude();
+  setupChat();
+  setupViews();
 
   // The local history file must be open before the first room events arrive.
   if (!WEB) S.historyReady = api.historyOpen({ root: S.cfg.root });
@@ -538,14 +537,14 @@ function onRoomMessage(type, data) {
   if (type === 'snapshot') {
     S.members = new Map(data.members.map((m) => [m.name, m]));
     S.claims = data.claims;
-    S.events = data.events;
+    mergeEvents(data.events);
     record(data.events);
+    addChat(data.events, false);
   } else if (type === 'member') S.members.set(data.name, data);
   else if (type === 'claims') S.claims = data;
   else if (type === 'tick') for (const m of data.members) S.members.set(m.name, m);
   else if (type === 'event') {
-    S.events.push(data);
-    if (S.events.length > 2000) S.events.shift();
+    mergeEvents([data]);
     record([data]);
     onEvent(data);
   }
@@ -556,13 +555,194 @@ const isMine = (member) => [...S.panes.values()].some((p) => p.local && p.member
 
 function onEvent(ev) {
   if (ev.kind === 'conflict') (S.blockedAt ||= new Map()).set(ev.member, Date.now());
-  if (ev.kind === 'conflict' && (isMine(ev.member) || isMine(ev.owner))) {
-    flash(isMine(ev.member)
+  if (ev.kind === 'note' || ev.kind === 'conflict') addChat([ev], true);
+  const forMe = ev.kind === 'note' && !isMe(ev.member) && (!ev.to || isMe(ev.to));
+  const myConflict = ev.kind === 'conflict' && (isMe(ev.member) || isMe(ev.owner));
+  if (myConflict) {
+    const text = isMe(ev.member)
       ? `Your AI wanted to touch ${ev.files[0]}, but it belongs to ${ev.owner}. CoDev stopped it.`
-      : `${ev.member}'s AI wanted to touch ${ev.files[0]} (yours). CoDev stopped it.`);
-  } else if (ev.kind === 'note' && !isMine(ev.member) && (!ev.to || isMine(ev.to))) {
-    flash(`Note from ${ev.member}${ev.from === 'ai' ? ' (AI)' : ''}: ${ev.summary}`, 'info');
+      : `${ev.member}'s AI wanted to touch ${ev.files[0]} (yours). CoDev stopped it.`;
+    flash(text);
+    notify('CoDev stopped an AI', text);
+  } else if (forMe) {
+    const who = `${ev.member}${ev.from === 'ai' ? "'s AI" : ''}`;
+    if ($('#chat').hidden) flash(`${who}: ${ev.summary}`, 'info');
+    notify(`Message from ${who}`, ev.summary);
   }
+}
+
+const isMe = (name) => name === S.cfg.name || isMine(name);
+
+// Same list and hash as server/rooms.js: the server gives everyone in a room a different colour;
+// names that are no longer in the room (old history) fall back to the colour of their name.
+const PALETTE = ['#ff8a65', '#6cb4ff', '#4dd0a1', '#ffd166', '#f78fb3', '#b5e655', '#ff6b6b', '#5ec8f2'];
+function colorOf(name) {
+  const m = S.members.get(name);
+  if (m?.color && PALETTE.includes(m.color)) return m.color;
+  let x = 0;
+  for (const ch of splitMember(String(name))[0]) x = (x * 31 + ch.charCodeAt(0)) >>> 0;
+  return PALETTE[x % PALETTE.length];
+}
+const personChip = (name, label = name) => {
+  const el = h('span', { class: 'person' }, label);
+  el.style.setProperty('--person', colorOf(name));
+  return el;
+};
+
+/** Desktop notification, only when CoDev is in the background. */
+function notify(title, body) {
+  if (WEB || document.hasFocus()) return;
+  try {
+    new Notification(title, { body, silent: false });
+  } catch {}
+}
+
+/* ---------- Chat ---------- */
+const chatKeys = new Set();
+S.chat = [];
+let unread = 0;
+
+function setupChat() {
+  $('#chat-btn').addEventListener('click', () => ($('#chat').hidden ? openChat() : closeChat()));
+  $('#chat-close').addEventListener('click', closeChat);
+  $('#note-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = $('#note-text').value.trim();
+    if (!text) return;
+    $('#note-text').value = '';
+    $('#note-text').style.height = '';
+    post('note', { text, to: S.noteTo || null, from: 'human' });
+  });
+  // The box grows with the message.
+  $('#note-text').addEventListener('input', (e) => {
+    e.target.style.height = '';
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+  });
+  // Enter sends; Shift+Enter adds a line.
+  $('#note-text').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      $('#note-form').requestSubmit();
+    }
+  });
+  // Earlier messages of this room: from the local history file in the app.
+  if (!WEB) {
+    S.historyReady
+      .then(() => api.historyRead())
+      .then((rows) => {
+        const here = rows.filter((r) => r.room === S.cfg.room);
+        mergeEvents(here); // earlier conversations of each Claude, for the conversation view
+        addChat(here, false);
+        for (const p of S.panes.values()) renderConvo(p, true);
+      });
+  }
+}
+
+function addChat(events, live) {
+  let fresh = 0;
+  for (const ev of events) {
+    if (ev.kind !== 'note' && ev.kind !== 'conflict') continue;
+    const key = `${ev.ts}|${ev.member}|${ev.summary}`;
+    if (chatKeys.has(key)) continue;
+    chatKeys.add(key);
+    S.chat.push(ev);
+    if (live && !isMe(ev.member)) fresh++;
+  }
+  S.chat.sort((a, b) => a.ts - b.ts);
+  if (fresh && $('#chat').hidden) unread += fresh;
+  renderChat();
+}
+
+function openChat() {
+  $('#chat').hidden = false;
+  unread = 0;
+  renderChat();
+  $('#note-text').focus();
+}
+
+function closeChat() {
+  $('#chat').hidden = true;
+  renderChat();
+}
+
+/** People in the room, at the top of the chat. */
+function renderChatPeople() {
+  const box = $('#chat-people');
+  if (!box) return;
+  const names = [...new Set([S.cfg.name, ...S.members.keys()])].sort((a, b) => (isMe(a) ? -1 : isMe(b) ? 1 : a.localeCompare(b)));
+  box.replaceChildren(
+    ...names.map((n) => {
+      const m = S.members.get(n);
+      const away = !isMe(n) && (!m || m.status === 'offline' || (!m.viewers && Date.now() - m.lastSeen > 15 * 60_000));
+      const chip = personChip(n, isMe(n) ? `${n} (you)` : n);
+      chip.classList.toggle('away', away);
+      chip.title = away ? 'Not here right now' : 'In the room';
+      return chip;
+    })
+  );
+}
+
+function miniBot(name) {
+  const box = document.createElement('span');
+  box.innerHTML = BOT_SVG;
+  const svg = box.firstElementChild;
+  svg.setAttribute('class', 'mini-bot');
+  svg.style.setProperty('--person', colorOf(name));
+  return svg;
+}
+
+function renderChat() {
+  const btn = $('#chat-btn');
+  btn.textContent = unread ? `Chat · ${unread} new` : 'Chat';
+  btn.classList.toggle('unread', unread > 0);
+  if ($('#chat').hidden) return;
+  renderChatPeople();
+  const list = $('#chat-list');
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  if (!S.chat.length) {
+    list.replaceChildren(h('p', { class: 'chat-empty' }, 'No messages yet. Write to the whole team or to one person: their Claude reads the messages sent to them at its next prompt.'));
+    return;
+  }
+  const out = [];
+  let day = '';
+  let group = null;
+  for (const m of S.chat.slice(-500)) {
+    const d = new Date(m.ts);
+    const label = d.toDateString() === new Date().toDateString() ? 'Today' : d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+    if (label !== day) {
+      day = label;
+      group = null;
+      out.push(h('div', { class: 'chat-day' }, label));
+    }
+    if (m.kind === 'conflict') {
+      group = null;
+      out.push(h('div', { class: 'system' }, h('strong', {}, 'CoDev'), ` stopped ${isMe(m.member) ? 'your AI' : `${m.member}'s AI`}: it tried to touch ${m.files?.[0] || 'a file'}, which belongs to ${isMe(m.owner) ? 'you' : m.owner}.`));
+      continue;
+    }
+    const ai = m.from === 'ai';
+    const to = m.to ? (isMe(m.to) ? 'to you' : `to ${m.to}`) : 'to everyone';
+    // Messages from the same person, kind and recipient within 5 minutes share one header.
+    const same = group && group.member === m.member && group.ai === ai && group.to === to && m.ts - group.last < 5 * 60_000;
+    if (!same) {
+      const mine = isMe(m.member);
+      const el = h('div', { class: `group${mine ? ' mine' : ''}${ai ? ' ai' : ''}` });
+      el.style.setProperty('--person', colorOf(m.member));
+      el.append(
+        h('div', { class: 'group-meta' },
+          ai ? miniBot(m.member) : null,
+          personChip(m.member, mine ? (ai ? 'Your Claude' : 'You') : ai ? `${m.member}'s Claude` : m.member),
+          h('span', { class: 'group-tag' }, to),
+          h('span', { class: 'group-time' }, d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })))
+      );
+      group = { el, member: m.member, ai, to, last: m.ts };
+      out.push(el);
+    }
+    group.last = m.ts;
+    group.el.append(h('p', { class: 'bubble', title: d.toLocaleString() }, m.summary));
+  }
+  list.replaceChildren(...out);
+  if (atBottom || list.dataset.seen !== String(S.chat.length)) list.scrollTop = list.scrollHeight;
+  list.dataset.seen = String(S.chat.length);
 }
 
 /* ---------- Terminal relay (WebSocket) ---------- */
@@ -606,12 +786,12 @@ function connectTerminals() {
     } else if (m.t === 'term-data') {
       const p = S.panes.get(m.id);
       if (p) {
-        p.lastOutput = Date.now();
+        noteOutput(p);
         p.term.write(m.d);
       }
     } else if (m.t === 'term-typing') {
       const p = S.panes.get(m.id);
-      if (p) p.lastKey = Date.now();
+      if (p) p.lastKey = m.done ? 0 : Date.now();
     } else if (m.t === 'term-resize') {
       const p = S.panes.get(m.id);
       if (p && !p.local) {
@@ -641,9 +821,13 @@ function makePane({ id, member, local, title }) {
     local ? (WEB ? 'Asking the host to open your Claude Code… they have to click Allow.' : 'Opening Claude Code…') : `Waiting for ${member}'s terminal…`
   );
   const wrap = h('div', { class: 'term-wrap' }, host, waiting);
-  const root = h('article', { class: `pane ${local ? 'local' : 'remote'}` }, head, wrap);
-  const pane = { id, member, local, title, root, head, host, wrap, waiting, createdAt: Date.now() };
+  // The conversation view lies over the terminal, which keeps its size and keeps running underneath.
+  const convo = h('div', { class: 'convo' });
+  const root = h('article', { class: `pane ${local ? 'local' : 'remote'}` }, head, h('div', { class: 'pane-body' }, wrap, convo));
+  const pane = { id, member, local, title, root, head, host, wrap, waiting, convo, createdAt: Date.now(), view: null };
   S.panes.set(id, pane);
+  buildConvo(pane);
+  applyView(pane);
   layout();
   return pane;
 }
@@ -679,10 +863,88 @@ function newTerminal(extra = {}) {
   return term;
 }
 
+/** Marks a terminal as being typed in, and tells teammates (only the fact, never the text). */
+function markTyping(p, d) {
+  if (d === '\r') {
+    // Enter sends the prompt: from here Claude is working, not you typing.
+    if (p.lastKey) wsSend({ t: 'term-typing', id: p.id, done: true });
+    p.lastKey = 0;
+    p.typingSent = 0;
+    return;
+  }
+  const now = Date.now();
+  p.lastKey = now;
+  if (!p.typingSent || now - p.typingSent > 800) {
+    p.typingSent = now;
+    wsSend({ t: 'term-typing', id: p.id });
+  }
+}
+
 /** Local terminal: a real Claude Code in a PTY, relayed to the room. */
-async function addLocal() {
+/* ---------- Naming another Claude of yours ---------- */
+const NICKNAMES = ['Nova', 'Pixel', 'Bolt', 'Echo', 'Orbit', 'Comet', 'Byte', 'Spark', 'Atlas', 'Juno'];
+const FOCUS = ['frontend', 'backend', 'tests', 'docs', 'fixes', 'design'];
+const MEMBER_SEP = ' · ';
+
+/** "Ana · tests" -> ["Ana", "tests"]; "Ana" -> ["Ana", ""]. */
+function splitMember(member) {
+  const i = member.indexOf(MEMBER_SEP);
+  return i < 0 ? [member, ''] : [member.slice(0, i), member.slice(i + MEMBER_SEP.length)];
+}
+
+const usedLabels = () => new Set([...S.panes.values()].filter((p) => p.local).map((p) => splitMember(p.member)[1].toLowerCase()));
+
+function setupNewClaude() {
+  const box = $('#new-claude');
+  const input = $('#nc-name');
+  $('#nc-chips').replaceChildren(
+    ...FOCUS.map((w) => {
+      const b = h('button', { type: 'button', class: 'nc-chip' }, w);
+      b.addEventListener('click', () => {
+        input.value = w;
+        input.focus();
+      });
+      return b;
+    })
+  );
+  $('#nc-cancel').addEventListener('click', () => (box.hidden = true));
+  box.addEventListener('keydown', (e) => e.key === 'Escape' && (box.hidden = true));
+  $('#new-claude-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const label = input.value.replace(/·/g, '').replace(/\s+/g, ' ').trim().slice(0, 20);
+    const err = $('#nc-error');
+    err.hidden = true;
+    if (!label) {
+      err.textContent = 'Give it a name.';
+      err.hidden = false;
+      return;
+    }
+    if (usedLabels().has(label.toLowerCase())) {
+      err.textContent = `You already have a Claude called ${label}.`;
+      err.hidden = false;
+      return;
+    }
+    box.hidden = true;
+    addLocal(label);
+  });
+}
+
+function openNewClaude() {
+  const box = $('#new-claude');
+  const used = usedLabels();
+  $('#nc-name').value = NICKNAMES.find((n) => !used.has(n.toLowerCase())) || '';
+  $('#nc-error').hidden = true;
+  // Under the button that opened it, inside the window.
+  const r = $('#add-claude').getBoundingClientRect();
+  box.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - 372))}px`;
+  box.hidden = false;
+  $('#nc-name').select();
+}
+
+/** label: the name of a second (third…) Claude of yours, shown as "You · label". */
+async function addLocal(label = '') {
   const idx = ++S.localCount;
-  const member = idx === 1 ? S.cfg.name : `${S.cfg.name} ${idx}`;
+  const member = label ? `${S.cfg.name}${MEMBER_SEP}${label}` : S.cfg.name;
   const id = `${S.cfg.name.replace(/\W+/g, '_')}-${Date.now().toString(36)}-${idx}`;
   const p = makePane({ id, member, local: true, title: 'Claude Code' });
 
@@ -691,6 +953,7 @@ async function addLocal() {
   p.ser = new SerializeAddon();
   p.term.loadAddon(p.fit);
   p.term.loadAddon(p.ser);
+  p.term.options.fontSize = fontFor(p.wrap.clientWidth);
   p.term.open(p.host);
   p.fit.fit();
   p.queue = [];
@@ -706,14 +969,11 @@ async function addLocal() {
 
   p.term.onData((d) => {
     api.ptyWrite(id, d);
-    const now = Date.now();
-    p.lastKey = now;
-    // Tell teammates you are typing (only the fact, never the text), at most once every 0.8 s.
-    if (!p.typingSent || now - p.typingSent > 800) {
-      p.typingSent = now;
-      wsSend({ t: 'term-typing', id });
-    }
+    if (!d.startsWith('\x1b')) markTyping(p, d); // pasted text (keys are handled by onKey)
   });
+  // Only real keys count as typing. onData also carries what the terminal reports by itself
+  // (focus in/out, which Claude Code asks for, mouse events, cursor reports): those are not typing.
+  p.term.onKey(({ key }) => markTyping(p, key));
   p.term.onResize(({ cols, rows }) => {
     api.ptyResize(id, cols, rows);
     wsSend({ t: 'term-resize', id, cols, rows });
@@ -722,6 +982,8 @@ async function addLocal() {
   p.ro = new ResizeObserver(() => {
     clearTimeout(p.fitTimer);
     p.fitTimer = setTimeout(() => {
+      const size = fontFor(p.wrap.clientWidth);
+      if (p.term.options.fontSize !== size) p.term.options.fontSize = size;
       try { p.fit.fit(); } catch {}
     }, 120);
   });
@@ -775,7 +1037,7 @@ function flushQueue(p) {
 api.onPtyData((id, data) => {
   const p = S.panes.get(id);
   if (!p) return;
-  p.lastOutput = Date.now();
+  noteOutput(p);
   // Send output once xterm has processed it, so snapshots and chunks stay in order.
   p.term.write(data, () => {
     p.queue.push(data);
@@ -816,7 +1078,8 @@ function rescale(p) {
   const cs = getComputedStyle(p.wrap);
   const w = p.wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   const hgt = p.wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-  const s = Math.min(w / screen.offsetWidth, hgt / screen.offsetHeight, 1.25);
+  // On big screens a replica may grow well past its original size, so it fills its window.
+  const s = Math.min(w / screen.offsetWidth, hgt / screen.offsetHeight, 3);
   p.host.style.transform = `scale(${s})`;
 }
 
@@ -928,7 +1191,7 @@ function historyEntry(r, d) {
   return h('article', { class: `entry ${r.kind}${quiet ? ' quiet' : ''}` },
     h('time', { class: 'entry-time', datetime: d.toISOString(), title: d.toLocaleString() }, d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })),
     h('div', {},
-      h('div', { class: 'entry-who' }, h('span', { class: 'entry-name' }, r.member), h('span', { class: 'entry-kind' }, kind), r.room !== S.cfg.room ? h('span', { class: 'entry-kind' }, `in ${r.room}`) : null),
+      h('div', { class: 'entry-who' }, h('span', { class: 'entry-name', style: `--person: ${colorOf(r.member)}` }, r.member), h('span', { class: 'entry-kind' }, kind), r.room !== S.cfg.room ? h('span', { class: 'entry-kind' }, `in ${r.room}`) : null),
       h('p', { class: 'entry-text' }, r.summary),
       r.files?.length && r.kind !== 'edit' ? h('p', { class: 'entry-files' }, r.files.join(', ')) : null,
       r.diff && (r.diff.old || r.diff.new) ? diffBlock(r.diff) : null));
@@ -942,6 +1205,187 @@ function diffBlock({ old = '', new: neu = '' }) {
   const added = neu ? neu.split('\n').length : 0;
   const removed = old ? old.split('\n').length : 0;
   return h('details', {}, h('summary', {}, `Show the change (+${added} −${removed})`), h('pre', {}, lines));
+}
+
+/* ---------- Conversation view: each Claude as a chat ---------- */
+// The same session, read like a chat: prompts, Claude's replies (from its transcript, sent by the
+// hooks), what it did, and when it needs you. Your own windows have a box to write prompts.
+S.view = store.get('codev:view') === 'convo' ? 'convo' : 'terminal';
+
+const eventKey = (e) => `${e.ts}|${e.member}|${e.kind}|${String(e.summary || '').slice(0, 80)}`;
+const seenEvents = new Set();
+
+/** Adds events to S.events once (the snapshot, live events and the history file overlap). */
+function mergeEvents(list) {
+  let added = 0;
+  for (const e of list) {
+    const k = eventKey(e);
+    if (seenEvents.has(k)) continue;
+    seenEvents.add(k);
+    S.events.push(e);
+    added++;
+  }
+  if (added) S.events.sort((a, b) => a.ts - b.ts);
+  if (S.events.length > 5000) S.events.splice(0, S.events.length - 5000);
+  return added;
+}
+
+function setupViews() {
+  const sw = $('#view-switch');
+  sw.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-view]');
+    if (!b) return;
+    S.view = b.dataset.view;
+    store.set('codev:view', S.view);
+    for (const p of S.panes.values()) {
+      p.view = null; // the bar sets every window
+      applyView(p);
+    }
+    renderViewSwitch();
+  });
+  renderViewSwitch();
+}
+
+function renderViewSwitch() {
+  for (const b of $('#view-switch').children) b.setAttribute('aria-checked', String(b.dataset.view === S.view));
+}
+
+const viewOf = (p) => p.view || S.view;
+
+function applyView(p) {
+  const convo = viewOf(p) === 'convo';
+  p.root.classList.toggle('view-convo', convo);
+  if (p.ui) p.ui.side = null; // the header's toggle changes label
+  if (convo) renderConvo(p, true);
+}
+
+function buildConvo(p) {
+  p.cv = {
+    list: h('div', { class: 'convo-list' }),
+    working: h('div', { class: 'convo-working' }, 'Claude is working', h('span', { class: 'dots' }, '...')),
+    typing: h('div', { class: 'convo-working' }, `${splitMember(p.member)[0]} is typing`, h('span', { class: 'dots' }, '...')),
+  };
+  p.convo.append(p.cv.list, p.cv.typing, p.cv.working);
+  if (p.local) {
+    const input = h('textarea', { rows: '1', placeholder: 'Ask Claude something', autocomplete: 'off' });
+    const form = h('form', { class: 'convo-form' }, input, h('button', { type: 'submit', class: 'send' }, 'Send'));
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      input.style.height = '';
+      markTyping(p, '\r'); // sent: from here Claude works
+      // Typed into Claude Code exactly like a paste, then Enter.
+      api.ptyWrite(p.id, `\x1b[200~${text}\x1b[201~`);
+      setTimeout(() => api.ptyWrite(p.id, '\r'), 40);
+    });
+    input.addEventListener('input', () => {
+      markTyping(p, 'key'); // typing here counts like typing in the terminal
+      input.style.height = '';
+      input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+    p.convo.append(form);
+    p.cv.input = input;
+  }
+}
+
+/** Light, safe Markdown for Claude's replies: code blocks, lists, headings, `code`, **bold**. */
+function markdown(text) {
+  const out = [];
+  const parts = String(text).split(/```[\w-]*\n?/);
+  parts.forEach((part, i) => {
+    if (i % 2 === 1) {
+      out.push(h('pre', { class: 'md-code' }, part.replace(/\n$/, '')));
+      return;
+    }
+    for (const block of part.split(/\n{2,}/)) {
+      const lines = block.split('\n').filter((l) => l.trim());
+      if (!lines.length) continue;
+      if (lines.every((l) => /^\s*([-*]|\d+\.)\s+/.test(l))) {
+        const ordered = /^\s*\d+\./.test(lines[0]);
+        out.push(h(ordered ? 'ol' : 'ul', { class: 'md-list' }, lines.map((l) => h('li', {}, inline(l.replace(/^\s*([-*]|\d+\.)\s+/, ''))))));
+      } else if (/^#{1,6}\s/.test(lines[0]) && lines.length === 1) {
+        out.push(h('p', { class: 'md-h' }, inline(lines[0].replace(/^#+\s*/, ''))));
+      } else {
+        out.push(h('p', {}, lines.flatMap((l, j) => (j ? [h('br'), ...inline(l)] : inline(l)))));
+      }
+    }
+  });
+  return out;
+}
+
+function inline(text) {
+  return String(text)
+    .split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/)
+    .filter(Boolean)
+    .map((t) =>
+      t.startsWith('`') && t.length > 2
+        ? h('code', {}, t.slice(1, -1))
+        : t.startsWith('**') && t.length > 4
+          ? h('strong', {}, t.slice(2, -2))
+          : t.startsWith('*') && t.endsWith('*') && t.length > 2
+            ? h('em', {}, t.slice(1, -1))
+            : t
+    );
+}
+
+function renderConvo(p, force = false) {
+  if (viewOf(p) !== 'convo') return;
+  const evs = S.events.filter((e) => e.member === p.member && !['status', 'note'].includes(e.kind));
+  const key = `${evs.length}|${evs.at(-1)?.ts || 0}`;
+  const state = paneState(p);
+  p.cv.working.hidden = state !== 'working';
+  // Someone else typing a prompt: shown like in any chat (your own box needs no reminder).
+  p.cv.typing.hidden = p.local || state !== 'writing';
+  if (!force && p.cv.key === key) return;
+  p.cv.key = key;
+  const list = p.cv.list;
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  const out = [];
+  let steps = null;
+  const color = colorOf(p.member);
+  const [person] = splitMember(p.member);
+  for (const e of evs.slice(-400)) {
+    if (e.kind === 'prompt') {
+      steps = null;
+      out.push(h('div', { class: 'cv-prompt', style: `--person: ${color}` }, h('span', { class: 'cv-who' }, p.local ? 'You' : person), h('p', {}, e.summary)));
+    } else if (e.kind === 'reply') {
+      steps = null;
+      out.push(h('div', { class: 'cv-reply' }, miniBot(p.member), h('div', { class: 'cv-md' }, markdown(e.summary))));
+    } else if (e.kind === 'attention') {
+      steps = null;
+      const last = e === evs.at(-1);
+      out.push(
+        h('div', { class: `cv-attention${last ? ' now' : ''}` },
+          h('p', {}, e.summary),
+          last
+            ? h('button', { type: 'button', class: 'send', onclick: () => { p.view = 'terminal'; applyView(p); } }, p.local ? 'Answer in the terminal' : 'See the terminal')
+            : null)
+      );
+    } else if (e.kind === 'conflict') {
+      steps = null;
+      out.push(h('div', { class: 'cv-system' }, `CoDev stopped this Claude: ${e.files?.[0] || 'a file'} belongs to ${e.owner}.`));
+    } else {
+      if (!steps) {
+        steps = h('div', { class: 'cv-steps' });
+        out.push(steps);
+      }
+      const row = h('div', { class: `cv-step ${e.kind}` }, e.summary);
+      steps.append(e.diff && (e.diff.old || e.diff.new) ? h('div', {}, row, diffBlock(e.diff)) : row);
+    }
+  }
+  if (!out.length) {
+    out.push(h('p', { class: 'cv-empty' }, p.local ? 'Write below to ask Claude for something. Its replies and everything it does will show here.' : `When ${person} asks Claude for something, the conversation shows here.`));
+  }
+  list.replaceChildren(...out);
+  if (atBottom || force) list.scrollTop = list.scrollHeight;
 }
 
 /* ---------- Headers and character ---------- */
@@ -973,12 +1417,29 @@ const BOT_SVG = `
 
 const STATE_LABEL = {
   working: 'working',
+  asking: 'needs you',
   writing: 'typing',
   waiting: 'waiting',
   sleeping: 'asleep',
   blocked: 'stopped by CoDev',
   offline: 'offline',
 };
+
+/**
+ * Output alone does not mean Claude is working: a click or a resize makes it redraw once.
+ * Working output is sustained (the spinner ticks several times a second), so we keep a few
+ * timestamps at least 200 ms apart and call it work when 4 of them fall in the last 2 seconds.
+ */
+function noteOutput(p) {
+  const now = Date.now();
+  p.lastOutput = now;
+  p.outTimes ||= [];
+  if (!p.outTimes.length || now - p.outTimes.at(-1) >= 200) {
+    p.outTimes.push(now);
+    if (p.outTimes.length > 8) p.outTimes.shift();
+  }
+}
+const busyOutput = (p, now) => (p.outTimes || []).filter((t) => now - t < 2000).length >= 4;
 
 /** What this Claude is doing right now. */
 function paneState(p) {
@@ -987,8 +1448,11 @@ function paneState(p) {
   if (m?.status === 'offline') return 'offline';
   if (now - (S.blockedAt?.get(p.member) || 0) < 8000) return 'blocked';
   if (now - (p.lastKey || 0) < 2500) return 'writing';
+  // Claude asked for something (a permission, a question) and nothing happened since.
+  const lastEv = S.events.findLast((e) => e.member === p.member && !['status', 'note'].includes(e.kind));
+  if (lastEv?.kind === 'attention' && now - lastEv.ts < 30 * 60_000) return 'asking';
   const hookWorking = m?.status === 'working' && now - m.lastSeen < 5 * 60_000;
-  if (hookWorking || now - (p.lastOutput || 0) < 1500) return 'working';
+  if (hookWorking || busyOutput(p, now)) return 'working';
   const last = Math.max(p.lastKey || 0, p.lastOutput || 0, m?.lastSeen || 0, p.createdAt);
   if (now - last > 2 * 60_000) return 'sleeping';
   return 'waiting';
@@ -999,7 +1463,8 @@ function buildHead(p) {
   bot.innerHTML = BOT_SVG;
   p.ui = {
     bot: bot.firstElementChild,
-    name: h('span', { class: 'who-name' }, p.member),
+    name: h('span', { class: 'who-name' }, splitMember(p.member)[0]),
+    label: splitMember(p.member)[1] ? h('span', { class: 'who-label' }, `· ${splitMember(p.member)[1]}`) : null,
     state: h('span', { class: 'who-state' }),
     intent: h('div', { class: 'intent' }),
     files: h('div', { class: 'files' }),
@@ -1008,7 +1473,7 @@ function buildHead(p) {
   };
   p.head.append(
     p.ui.bot,
-    h('div', { class: 'who-main' }, h('div', { class: 'who-line' }, p.ui.name, p.ui.state), p.ui.intent, p.ui.files),
+    h('div', { class: 'who-main' }, h('div', { class: 'who-line' }, p.ui.name, p.ui.label, p.ui.state), p.ui.intent, p.ui.files),
     p.ui.sideEl
   );
 }
@@ -1016,9 +1481,11 @@ function buildHead(p) {
 /** Right side of a header: Close (yours), Stop (a guest running on this computer) or "view only". */
 function updateSide(p) {
   const kind = p.local ? 'local' : S.guestIds.has(p.id) ? 'guest' : 'remote';
-  if (p.ui.side === kind) return;
-  p.ui.side = kind;
+  if (p.ui.side === kind + viewOf(p)) return;
+  p.ui.side = kind + viewOf(p);
+  const toggle = h('button', { class: 'icon-btn', title: 'Switch this window between terminal and conversation', onclick: () => { p.view = viewOf(p) === 'convo' ? 'terminal' : 'convo'; applyView(p); } }, viewOf(p) === 'convo' ? 'Terminal' : 'Conversation');
   p.ui.sideEl.replaceChildren(
+    toggle,
     ...[].concat(
     kind === 'local'
       ? h('button', { class: 'icon-btn', title: 'Close this terminal', onclick: () => closeLocal(p) }, 'Close')
@@ -1034,6 +1501,11 @@ function updateSide(p) {
 
 function updateHead(p) {
   if (!p.ui) buildHead(p);
+  const color = colorOf(p.member);
+  if (p.color !== color) {
+    p.color = color;
+    p.root.style.setProperty('--person', color);
+  }
   updateSide(p);
   const m = S.members.get(p.member);
   const st = paneState(p);
@@ -1059,14 +1531,34 @@ function updateHead(p) {
 }
 
 function renderHeads() {
-  for (const p of S.panes.values()) updateHead(p);
+  for (const p of S.panes.values()) {
+    updateHead(p);
+    renderConvo(p);
+  }
+  if (S.cfg) updateNoteTargets();
 }
 setInterval(renderHeads, 400);
 
+/** Everyone in the room can get a message: people with a terminal and people watching from a browser. */
 function updateNoteTargets() {
-  const sel = $('#note-to');
-  const prev = sel.value;
-  const others = [...new Set([...S.panes.values()].filter((p) => !p.local).map((p) => p.member))];
-  sel.replaceChildren(h('option', { value: '' }, 'Everyone'), ...others.map((n) => h('option', { value: n }, `To ${n}`)));
-  sel.value = others.includes(prev) ? prev : '';
+  const box = $('#note-to');
+  const others = [...new Set([...S.members.keys(), ...[...S.panes.values()].map((p) => p.member)])]
+    .filter((n) => !isMe(n) && (S.members.get(n)?.viewers || [...S.panes.values()].some((p) => p.member === n) || S.members.get(n)?.status !== 'offline'))
+    .sort();
+  if (S.noteTo && !others.includes(S.noteTo)) S.noteTo = '';
+  const key = others.map((n) => `${n}:${colorOf(n)}`).join('|') + `#${S.noteTo || ''}`;
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  const chip = (name, label) => {
+    const b = h('button', { type: 'button', class: `to-chip${name ? '' : ' everyone'}`, role: 'radio', 'aria-checked': String((S.noteTo || '') === name) }, label);
+    if (name) b.style.setProperty('--person', colorOf(name));
+    b.addEventListener('click', () => {
+      S.noteTo = name;
+      updateNoteTargets();
+      $('#note-text').focus();
+    });
+    return b;
+  };
+  box.replaceChildren(chip('', 'Everyone'), ...others.map((n) => chip(n, n)));
+  renderChatPeople();
 }

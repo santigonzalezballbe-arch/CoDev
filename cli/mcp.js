@@ -1,6 +1,11 @@
 // Minimal MCP server (JSON-RPC over stdio) so the AI can see the team and coordinate.
 import readline from 'node:readline';
+import fs from 'node:fs';
+import path from 'node:path';
 import { findConfig, toProjectPath, api, teamSummary } from './config.js';
+import { History } from '../desktop/history.js';
+
+const KINDS = ['prompt', 'reply', 'edit', 'command', 'read', 'note', 'conflict', 'attention'];
 
 const TOOLS = [
   {
@@ -38,6 +43,28 @@ const TOOLS = [
     },
   },
   {
+    name: 'codev_read_chat',
+    description:
+      "Reads the room's chat: messages between people and AIs, and CoDev's alerts when it stopped an AI. Use it to catch up on decisions and requests from your teammates.",
+    inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'How many of the latest messages (default 40)' } } },
+  },
+  {
+    name: 'codev_search_history',
+    description:
+      "Searches the room's history: every prompt, Claude reply, file change, command and chat message, from every teammate. " +
+      'Use it to answer questions like "who changed src/auth.js and why?" or "what did Marc ask for yesterday?".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Words to find (all must appear) in the text, file names or person. Empty = latest entries' },
+        person: { type: 'string', description: "Only this person's entries" },
+        kind: { type: 'string', enum: KINDS, description: 'Only this kind of entry' },
+        since_hours: { type: 'number', description: 'Only the last N hours' },
+        limit: { type: 'number', description: 'How many results (default 25)' },
+      },
+    },
+  },
+  {
     name: 'codev_set_intent',
     description: "Tells the team the plan or task you are working on now.",
     inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
@@ -64,12 +91,59 @@ async function callTool(cfg, name, args = {}) {
     case 'codev_send_note':
       await api(cfg, 'note', { text: args.text, to: args.to || null, from: 'ai' });
       return `Note sent${args.to ? ` to ${args.to}` : ' to the team'}.`;
+    case 'codev_read_chat': {
+      const msgs = (await roomHistory(cfg)).filter((e) => e.kind === 'note' || e.kind === 'conflict').slice(-(args.limit || 40));
+      if (!msgs.length) return 'The chat is empty.';
+      return `Chat of room "${cfg.room}" (oldest first):\n` + msgs.map(formatEntry).join('\n');
+    }
+    case 'codev_search_history': {
+      const words = String(args.query || '').toLowerCase().split(/\s+/).filter(Boolean);
+      const since = args.since_hours ? Date.now() - args.since_hours * 3_600_000 : 0;
+      const hits = (await roomHistory(cfg)).filter(
+        (e) =>
+          e.kind !== 'status' &&
+          e.ts >= since &&
+          (!args.person || e.member.toLowerCase().startsWith(String(args.person).toLowerCase())) &&
+          (!args.kind || e.kind === args.kind) &&
+          words.every((w) => [e.summary, e.member, ...(e.files || [])].join(' ').toLowerCase().includes(w))
+      );
+      if (!hits.length) return 'Nothing in the history matches that.';
+      const shown = hits.slice(-(args.limit || 25));
+      return `${hits.length} match${hits.length === 1 ? '' : 'es'}${hits.length > shown.length ? `, the latest ${shown.length}` : ''} (oldest first):\n` + shown.map(formatEntry).join('\n');
+    }
     case 'codev_set_intent':
       await api(cfg, 'intent', { text: args.text });
       return 'Task announced to the team.';
     default:
       throw Object.assign(new Error(`Unknown tool: ${name}`), { code: -32602 });
   }
+}
+
+/**
+ * The room's history as complete as this computer has it: what the server still keeps, plus the
+ * project's local history file (.codev/history.jsonl, written by the CoDev app), without duplicates.
+ */
+async function roomHistory(cfg) {
+  const byKey = new Map();
+  const add = (e) => byKey.set(`${e.ts}|${e.member}|${e.kind}|${String(e.summary || '').slice(0, 80)}`, e);
+  const file = path.join(cfg.root, '.codev', 'history.jsonl');
+  if (fs.existsSync(file)) for (const e of new History(file).read()) if (!e.room || e.room === cfg.room) add(e);
+  try {
+    for (const e of (await api(cfg, 'state', null, { query: '?events=all' })).events) add(e);
+  } catch {}
+  return [...byKey.values()].sort((a, b) => a.ts - b.ts);
+}
+
+const WORD = { prompt: 'asked Claude', reply: 'Claude replied', edit: 'changed', command: 'ran', read: 'read', note: 'wrote', conflict: 'was stopped by CoDev', attention: 'Claude asked for attention' };
+
+function formatEntry(e) {
+  const d = new Date(e.ts);
+  const when = `${d.toISOString().slice(0, 10)} ${d.toTimeString().slice(0, 5)}`;
+  const who = e.from === 'ai' ? `${e.member}'s AI` : e.member;
+  const to = e.kind === 'note' ? ` to ${e.to || 'everyone'}` : '';
+  const text = String(e.summary || '').replace(/\s+/g, ' ');
+  const files = e.files?.length && e.kind !== 'edit' ? ` [${e.files.join(', ')}]` : '';
+  return `- ${when} · ${who} ${WORD[e.kind] || e.kind}${to}: ${text.length > 700 ? text.slice(0, 700) + '…' : text}${files}`;
 }
 
 export function runMcp() {

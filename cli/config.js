@@ -35,8 +35,8 @@ export function toProjectPath(cfg, file, cwd = cfg.root) {
   return rel.split(path.sep).join('/');
 }
 
-export async function api(cfg, action, body, { timeout = 2500 } = {}) {
-  const url = `${cfg.server.replace(/\/$/, '')}/api/rooms/${encodeURIComponent(cfg.room)}/${action}`;
+export async function api(cfg, action, body, { timeout = 2500, query = '' } = {}) {
+  const url = `${cfg.server.replace(/\/$/, '')}/api/rooms/${encodeURIComponent(cfg.room)}/${action}${query}`;
   const init = { signal: AbortSignal.timeout(timeout), headers: cfg.key ? { 'x-codev-key': cfg.key } : {} };
   if (body) {
     init.method = 'POST';
@@ -55,6 +55,24 @@ const ago = (ts, now) => {
   return `${Math.round(s / 3600)} h ago`;
 };
 
+const slug = (s) => String(s).toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'someone';
+
+/** Each person's AI keeps its own log in the repository: no locking and no merge conflicts between them. */
+export const historyPath = (cfg) => `codev/history/${slug(cfg.name)}.md`;
+
+/** The rules CoDev gives every AI at the start of a session and with every prompt. */
+export function projectRules(cfg) {
+  return [
+    `[CoDev] ${cfg.name} works on this project together with teammates through CoDev (room "${cfg.room}").`,
+    `Project log: after any task that changes files, append an entry at the end of ${historyPath(cfg)} (create the file and its folders if needed). ` +
+      'Each entry: a "## <date and time>" heading, the request in one line, what you changed (files) and why, and what is left to do. ' +
+      'Keep it short and factual. It lives in the git repository so the whole team can read it; when you commit, commit it with your changes. ' +
+      'Only edit your own file in codev/history/.',
+    'Before starting a task, read your teammates\' logs in codev/history/ (if any) to know what was done and why. ' +
+      'For more, the codev MCP server has codev_read_chat (the room\'s chat) and codev_search_history (every prompt, change, command and message, searchable).',
+  ].join('\n');
+}
+
 /** Plain-text summary of what teammates are doing, meant to be given to an AI as context. */
 export function teamSummary(cfg, state, { maxEvents = 6 } = {}) {
   const others = state.members.filter((m) => m.name !== cfg.name);
@@ -65,16 +83,17 @@ export function teamSummary(cfg, state, { maxEvents = 6 } = {}) {
     if (m.intent) lines.push(`Current task: ${m.intent}`);
     const claims = state.claims.filter((c) => c.owner === m.name);
     if (claims.length) lines.push(`Claimed files (do NOT modify them): ${claims.map((c) => c.file).join(', ')}`);
-    const evs = state.events.filter((e) => e.member === m.name && e.kind !== 'prompt').slice(-maxEvents);
+    const evs = state.events.filter((e) => e.member === m.name && !['prompt', 'reply', 'attention'].includes(e.kind)).slice(-maxEvents);
     if (evs.length) {
       lines.push('Recent activity:');
       for (const e of evs) lines.push(`- ${ago(e.ts, state.now)}: ${e.summary}`);
     }
   }
-  const notes = state.events.filter((e) => e.kind === 'note' && e.to === cfg.name).slice(-3);
+  // Messages for you or for everyone (not your own), newest last.
+  const notes = state.events.filter((e) => e.kind === 'note' && e.member !== cfg.name && (!e.to || e.to === cfg.name)).slice(-5);
   if (notes.length) {
-    lines.push('', 'Recent notes addressed to you:');
-    for (const n of notes) lines.push(`- ${n.member}: ${n.summary}`);
+    lines.push('', 'Recent chat messages for you or the whole team:');
+    for (const n of notes) lines.push(`- ${n.member}${n.from === 'ai' ? "'s AI" : ''}${n.to ? ' (to you)' : ''}: ${n.summary}`);
   }
   lines.push(
     '',

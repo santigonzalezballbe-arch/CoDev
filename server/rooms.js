@@ -2,9 +2,11 @@
 
 export const CLAIM_TTL_MS = 20 * 60 * 1000; // a claim expires after 20 min without touching the file
 const MAX_EVENTS = 400;
-const PALETTE = ['#7c9cff', '#ff8a65', '#4dd0a1', '#e57bd8', '#ffd166', '#5ec8f2', '#b39ddb', '#f28482'];
+// Person colours: bright enough for black text on top, and visible on both white and black.
+// The client keeps the same list (desktop/renderer.js) for names that are no longer in the room.
+export const PALETTE = ['#ff8a65', '#6cb4ff', '#4dd0a1', '#ffd166', '#f78fb3', '#b5e655', '#ff6b6b', '#5ec8f2'];
 
-function colorFor(name) {
+export function colorFor(name) {
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return PALETTE[h % PALETTE.length];
@@ -24,7 +26,15 @@ export class Room {
   member(name) {
     let m = this.members.get(name);
     if (!m) {
-      m = { name, color: colorFor(name), status: 'idle', intent: '', lastSeen: Date.now(), viewers: 0 };
+      // Everyone in a room gets a different colour (while there are colours left): start from the
+      // name's own colour and take the next one nobody in the room has.
+      // A person's extra Claudes ("Ana · tests") share that person's colour.
+      const person = name.split(' · ')[0];
+      const sibling = [...this.members.values()].find((x) => x.name.split(' · ')[0] === person);
+      const used = new Set([...this.members.values()].map((x) => x.color));
+      const start = PALETTE.indexOf(colorFor(person));
+      const color = sibling?.color || PALETTE.map((_, i) => PALETTE[(start + i) % PALETTE.length]).find((c) => !used.has(c)) || colorFor(person);
+      m = { name, color, status: 'idle', intent: '', lastSeen: Date.now(), viewers: 0 };
       this.members.set(name, m);
     }
     m.lastSeen = Date.now();
