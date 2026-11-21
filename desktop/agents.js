@@ -89,7 +89,6 @@ export function spawnSpec(agentId, { model, key, codev = {}, runner, rules = '' 
           ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-flash[1m]',
           ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-flash',
           CLAUDE_CODE_SUBAGENT_MODEL: 'deepseek-flash',
-          CLAUDE_CODE_EFFORT_LEVEL: 'max',
           CLAUDE_CODE_MAX_CONTEXT_TOKENS: '1000000',
           CLAUDE_CODE_AUTO_COMPACT_WINDOW: '786432',
           API_TIMEOUT_MS: '600000',
