@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import { startServer } from '../server/server.js';
 import { setupProject } from '../cli/init.js';
 import { ensureCloudflared } from './cloudflared.js';
+import { History } from './history.js';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ptys = new Map(); // id -> process
@@ -278,6 +279,23 @@ ipcMain.on('pty-resize', (_e, id, cols, rows) => {
 ipcMain.on('pty-kill', (_e, id) => {
   ptys.get(id)?.kill();
   ptys.delete(id);
+});
+
+/* ---------- Local history (<project>/.codev/history.jsonl) ---------- */
+let history = null;
+ipcMain.handle('history-open', (_e, { root }) => {
+  history = new History(path.join(root, '.codev', 'history.jsonl'));
+  return history.file;
+});
+ipcMain.handle('history-append', (_e, events, room) => (history ? history.append(events, room) : 0));
+ipcMain.handle('history-read', () => (history ? history.read() : []));
+ipcMain.handle('history-reveal', () => {
+  if (history) {
+    fs.mkdirSync(path.dirname(history.file), { recursive: true });
+    if (!fs.existsSync(history.file)) fs.writeFileSync(history.file, '');
+    shell.showItemInFolder(history.file);
+  }
+  return true;
 });
 
 /* ---------- Guest terminals: a browser visitor's own Claude Code, on this computer ---------- */

@@ -88,7 +88,7 @@ export async function runHook() {
       case 'SessionStart':
       case 'UserPromptSubmit': {
         if (input.hook_event_name === 'UserPromptSubmit' && input.prompt) {
-          await api(cfg, 'intent', { text: clip(input.prompt.trim(), 500) });
+          await api(cfg, 'intent', { text: clip(input.prompt.trim(), 8000) });
         } else {
           await api(cfg, 'status', { status: 'idle', summary: 'Opened a session' });
         }

@@ -36,6 +36,10 @@ const api = window.codev || {
   onGuestRequest: noop,
   onGuestRequestExpired: noop,
   onGuests: noop,
+  historyOpen: async () => null,
+  historyAppend: noop,
+  historyRead: async () => [],
+  historyReveal: noop,
 };
 
 /* ---------- Host side: requests from browser visitors ---------- */
@@ -124,6 +128,8 @@ const S = {
   ws: null,
   panes: new Map(), // id -> pane (local and remote)
   guestIds: new Set(), // remote panes that are guest terminals running on this computer
+  events: [], // the room's activity as received (the browser's history; the app also keeps a file)
+  historyReady: Promise.resolve(),
   localCount: 0,
 };
 
@@ -455,6 +461,9 @@ function openWorkspace() {
     post('note', { text, to: $('#note-to').value || null, from: 'human' });
   });
 
+  // The local history file must be open before the first room events arrive.
+  if (!WEB) S.historyReady = api.historyOpen({ root: S.cfg.root });
+  setupHistory();
   connectTerminals();
   // Start Claude once we know how many panes there are: if the terminal shrinks right after
   // starting, the redraw leaves artifacts behind.
@@ -529,10 +538,17 @@ function onRoomMessage(type, data) {
   if (type === 'snapshot') {
     S.members = new Map(data.members.map((m) => [m.name, m]));
     S.claims = data.claims;
+    S.events = data.events;
+    record(data.events);
   } else if (type === 'member') S.members.set(data.name, data);
   else if (type === 'claims') S.claims = data;
   else if (type === 'tick') for (const m of data.members) S.members.set(m.name, m);
-  else if (type === 'event') onEvent(data);
+  else if (type === 'event') {
+    S.events.push(data);
+    if (S.events.length > 2000) S.events.shift();
+    record([data]);
+    onEvent(data);
+  }
   renderHeads();
 }
 
@@ -802,6 +818,130 @@ function rescale(p) {
   const hgt = p.wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
   const s = Math.min(w / screen.offsetWidth, hgt / screen.offsetHeight, 1.25);
   p.host.style.transform = `scale(${s})`;
+}
+
+/* ---------- History ---------- */
+/** Saves events to the local history file (desktop app) and refreshes the panel if it is open. */
+function record(events) {
+  if (!events.length) return;
+  if (!WEB) S.historyReady.then(() => api.historyAppend(events, S.cfg.room));
+  if (!$('#history').hidden) refreshHistory();
+}
+
+const KIND_WORD = {
+  prompt: 'asked Claude',
+  edit: 'changed',
+  command: 'ran',
+  read: 'read',
+  note: 'note',
+  conflict: 'stopped by CoDev',
+  status: '',
+  agent: 'subagent',
+  web: 'looked up',
+  plan: 'plan',
+  tool: 'tool',
+};
+const hist = { kind: 'all', who: '', q: '', rows: [] };
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function setupHistory() {
+  $('#history-btn').addEventListener('click', () => ($('#history').hidden ? openHistory() : closeHistory()));
+  $('#history-close').addEventListener('click', closeHistory);
+  $('#history-file').addEventListener('click', () => api.historyReveal());
+  $('#history-kinds').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-kind]');
+    if (!b) return;
+    hist.kind = b.dataset.kind;
+    renderHistory();
+  });
+  $('#history-search').addEventListener('input', debounce((e) => {
+    hist.q = e.target.value.trim().toLowerCase();
+    renderHistory();
+  }, 150));
+  $('#history-who').addEventListener('change', (e) => {
+    hist.who = e.target.value;
+    renderHistory();
+  });
+  document.addEventListener('keydown', (e) => e.key === 'Escape' && !$('#history').hidden && closeHistory());
+}
+
+async function openHistory() {
+  $('#history').hidden = false;
+  $('#history-btn').textContent = 'Back to terminals';
+  await refreshHistory();
+  $('#history-search').focus();
+}
+
+function closeHistory() {
+  $('#history').hidden = true;
+  $('#history-btn').textContent = 'History';
+}
+
+const refreshHistory = debounce(async () => {
+  // The app reads its file (everything ever seen in this project); a browser has the room's recent events.
+  hist.rows = WEB ? S.events.map((e) => ({ ...e, room: S.cfg.room })) : await (S.historyReady.then(() => api.historyRead()));
+  renderHistory();
+}, 120);
+
+function renderHistory() {
+  for (const b of $('#history-kinds').children) b.setAttribute('aria-checked', String(b.dataset.kind === hist.kind));
+  const people = [...new Set(hist.rows.map((r) => r.member))].sort();
+  const sel = $('#history-who');
+  sel.replaceChildren(h('option', { value: '' }, 'Everyone'), ...people.map((n) => h('option', { value: n }, n)));
+  sel.value = people.includes(hist.who) ? hist.who : '';
+
+  const rows = hist.rows
+    .filter((r) => r.kind !== 'status')
+    .filter((r) => hist.kind === 'all' || r.kind === hist.kind || (hist.kind === 'note' && r.kind === 'conflict'))
+    .filter((r) => !hist.who || r.member === hist.who)
+    .filter((r) => !hist.q || [r.summary, r.member, ...(r.files || [])].join(' ').toLowerCase().includes(hist.q))
+    .reverse();
+
+  const prompts = hist.rows.filter((r) => r.kind === 'prompt').length;
+  const edits = hist.rows.filter((r) => r.kind === 'edit').length;
+  $('#history-count').textContent = WEB
+    ? `${rows.length} shown. The browser keeps the room's recent activity; the CoDev app saves everything to a file.`
+    : `${rows.length} shown · ${plural(prompts, 'prompt')} and ${plural(edits, 'change')} saved in .codev/history.jsonl`;
+
+  const list = $('#history-list');
+  if (!rows.length) {
+    list.replaceChildren(h('p', { class: 'history-empty' }, hist.rows.length ? 'Nothing matches.' : 'Nothing yet. Every prompt, change, command and note in this room will be kept here.'));
+    return;
+  }
+  const out = [];
+  let day = '';
+  for (const r of rows.slice(0, 1500)) {
+    const d = new Date(r.ts);
+    const label = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    if (label !== day) {
+      day = label;
+      out.push(h('h3', { class: 'history-day' }, label));
+    }
+    out.push(historyEntry(r, d));
+  }
+  list.replaceChildren(...out);
+}
+
+function historyEntry(r, d) {
+  const quiet = ['read', 'tool', 'web', 'agent', 'plan'].includes(r.kind);
+  const kind = r.kind === 'note' ? `note${r.to ? ` to ${r.to}` : ' to everyone'}${r.from === 'ai' ? ' (from the AI)' : ''}` : KIND_WORD[r.kind] ?? r.kind;
+  return h('article', { class: `entry ${r.kind}${quiet ? ' quiet' : ''}` },
+    h('time', { class: 'entry-time', datetime: d.toISOString(), title: d.toLocaleString() }, d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })),
+    h('div', {},
+      h('div', { class: 'entry-who' }, h('span', { class: 'entry-name' }, r.member), h('span', { class: 'entry-kind' }, kind), r.room !== S.cfg.room ? h('span', { class: 'entry-kind' }, `in ${r.room}`) : null),
+      h('p', { class: 'entry-text' }, r.summary),
+      r.files?.length && r.kind !== 'edit' ? h('p', { class: 'entry-files' }, r.files.join(', ')) : null,
+      r.diff && (r.diff.old || r.diff.new) ? diffBlock(r.diff) : null));
+}
+
+function diffBlock({ old = '', new: neu = '' }) {
+  const lines = [
+    ...(old ? old.split('\n').map((l) => h('span', { class: 'l del' }, '- ' + l)) : []),
+    ...(neu ? neu.split('\n').map((l) => h('span', { class: 'l add' }, '+ ' + l)) : []),
+  ];
+  const added = neu ? neu.split('\n').length : 0;
+  const removed = old ? old.split('\n').length : 0;
+  return h('details', {}, h('summary', {}, `Show the change (+${added} −${removed})`), h('pre', {}, lines));
 }
 
 /* ---------- Headers and character ---------- */

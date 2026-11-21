@@ -99,6 +99,7 @@
         <strong id="room-name"></strong>
       </div>
       <button id="invite" class="bar-btn quiet">Invite</button>
+      <button id="history-btn" class="bar-btn quiet">History</button>
       <button id="share" class="bar-btn quiet" hidden></button>
       <button id="add-claude" class="bar-btn" title="Open another Claude Code session of your own">Another Claude</button>
       <a id="get-app" class="bar-btn quiet web-only" href="https://github.com/santigonzalezballbe-arch/CoDev#desktop-app-recommended" target="_blank">Get the app</a>
@@ -116,6 +117,26 @@
       <button id="request-deny" class="bar-btn quiet">Deny</button>
     </div>
     <section id="panes" class="panes"></section>
+
+    <!-- History: every prompt, change, command and note of the room, from the local file. -->
+    <section id="history" class="history" hidden aria-label="History">
+      <header class="history-bar">
+        <h2 class="history-title">History</h2>
+        <input id="history-search" type="search" placeholder="Search prompts, files, commands" autocomplete="off" />
+        <select id="history-who" aria-label="Person"></select>
+        <div class="switch" id="history-kinds" role="radiogroup" aria-label="Kind">
+          <button type="button" class="opt" data-kind="all" role="radio">All</button>
+          <button type="button" class="opt" data-kind="prompt" role="radio">Prompts</button>
+          <button type="button" class="opt" data-kind="edit" role="radio">Changes</button>
+          <button type="button" class="opt" data-kind="command" role="radio">Commands</button>
+          <button type="button" class="opt" data-kind="note" role="radio">Notes</button>
+        </div>
+        <button id="history-file" class="bar-btn quiet app-only">Show the file</button>
+        <button id="history-close" class="bar-btn">Close</button>
+      </header>
+      <p id="history-count" class="history-count"></p>
+      <div id="history-list" class="history-list"></div>
+    </section>
   </div>
 
   <script type="module" src="renderer.js"></script>

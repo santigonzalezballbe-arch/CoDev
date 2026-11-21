@@ -126,7 +126,8 @@ async function handleApi(req, res, roomId, action) {
 
   switch (action) {
     case 'intent': {
-      room.setIntent(name, clip(String(body.text || ''), 500));
+      // The whole prompt goes to the history; the header shows its start.
+      room.setIntent(name, clip(String(body.text || ''), 8000));
       return sendJson(res, 200, { ok: true });
     }
     case 'status': {

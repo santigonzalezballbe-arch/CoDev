@@ -68,7 +68,7 @@ function installMcp(root, env = process.env) {
 export async function setupProject({ root, server, room, name, key = null, env }) {
   // .codev.json is git-ignored, so the room key never ends up in the repository.
   fs.writeFileSync(path.join(root, CONFIG_FILE), JSON.stringify({ server, room, name, ...(key && { key }) }, null, 2) + '\n');
-  addToGitignore(root, [CONFIG_FILE, '.claude/settings.local.json']);
+  addToGitignore(root, [CONFIG_FILE, '.claude/settings.local.json', '.codev/']);
   const hooksFile = installHooks(root);
   const mcpOk = installMcp(root, env);
   let reachable = false;

@@ -30,6 +30,7 @@ What you will find:
 - **Share online / Stop sharing online**: the room's host can open or close the internet link at any time.
 - **Notes**: the top bar sends messages to one teammate or the whole team. The AIs can send notes too.
 - **Alerts**: when CoDev stops an AI because it was about to touch someone else's file, a banner appears.
+- **History**: every prompt (in full), change (with its diff), command, note and conflict in the room, grouped by day, with search and filters by person and kind. The app saves it to `.codev/history.jsonl` in the project folder: one JSON object per line, kept across restarts, git-ignored, easy to grep or import. **Show the file** opens its folder. A browser shows the room's recent activity only.
 
 If port 4321 is taken, the app uses the next free one.
 
@@ -58,7 +59,7 @@ Only allow people you trust: the guest's Claude Code can run commands on the hos
 └────────────────────────┘        └─────────────────────────┘        └────────────────────────┘
 ```
 
-- `desktop/`: the Electron app. `main.js` runs the PTYs, clones repositories, hosts the server and opens the tunnel. `cloudflared.js` finds or downloads cloudflared. `renderer.js` holds the xterm.js terminals, the relay, the headers and the character.
+- `desktop/`: the Electron app. `main.js` runs the PTYs, clones repositories, hosts the server and opens the tunnel. `cloudflared.js` finds or downloads cloudflared. `history.js` writes the local history file. `renderer.js` holds the xterm.js terminals, the relay, the headers, the character and the history panel.
 - `server/`: REST API, WebSocket (`terminals.js`: terminals and room events) and the browser view, which is the desktop UI itself served from `desktop/`.
 - `cli/`: the `codev` command. It includes the Claude Code hooks, the MCP server, `init`, `watch` and `status`.
 - `test/`: end-to-end tests with the real server, hooks, MCP server and terminal relay.
@@ -88,7 +89,7 @@ codev init --room my-project --name Alex --server http://localhost:4321
 If the server was started with `--key`, pass the same `--key` to `codev init`.
 
 This:
-- creates `.codev.json` (room, name and server) and adds it to `.gitignore`;
+- creates `.codev.json` (room, name and server) and adds it and `.codev/` (the history) to `.gitignore`;
 - adds the hooks to `.claude/settings.local.json` without touching the ones you already have;
 - registers the `codev` MCP server in Claude Code (local scope).
 
