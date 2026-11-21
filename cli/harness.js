@@ -8,6 +8,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { client, ndJsonStream } from '@agentclientprotocol/sdk';
 import { findConfig, api, toProjectPath, teamSummary } from './config.js';
+import { describeTool } from './harness-tools.js';
 
 const cfg = findConfig();
 const env = process.env;
@@ -103,26 +104,21 @@ function closeInput() {
 
 /* ---------- CoDev room: prompts, replies and tool activity ---------- */
 const publish = (action, body) => api(cfg, action, body).catch(() => {});
-const TOOL_KINDS = { edit: 'edit', execute: 'command', read: 'read', search: 'read', fetch: 'web', other: 'tool' };
-
 function isCodevTool(tool) {
   return /codev_/i.test(tool?.title || '') || /codev_/i.test(JSON.stringify(tool?.rawInput || {}));
 }
 
+const describe = (tool) => describeTool(tool, (p) => toProjectPath(cfg, p, cfg.root));
+
 function publishTool(tool) {
   if (isCodevTool(tool)) return; // CoDev's own MCP tools already publish their own activity
-  const kind = TOOL_KINDS[tool.kind];
-  if (!kind) return;
-  const files = (tool.locations || []).map((l) => toProjectPath(cfg, l.path, cfg.root)).filter(Boolean);
-  const title = tool.title || tool.kind || 'tool';
-  const summary =
-    kind === 'edit' ? `Edited ${files.join(', ') || title}` : kind === 'command' ? `$ ${clip(title, 240)}` : clip(title, 240);
-  publish('activity', { kind, tool: 'harness', summary, files: kind === 'edit' ? files : [] });
+  const action = describe(tool);
+  if (action) publish('activity', { ...action, tool: 'harness', files: action.kind === 'edit' ? action.files : [] });
 }
 
 function printTool(tool) {
-  const files = (tool.locations || []).map((l) => toProjectPath(cfg, l.path, cfg.root) || l.path).filter(Boolean);
-  say(`\n${DIM}· ${tool.title || tool.kind || 'tool'}${files.length ? `  ${files.join(', ')}` : ''}${RESET}`);
+  const action = describe(tool);
+  say(`\n${DIM}· ${action?.summary || tool.title || tool.kind || 'tool'}${RESET}`);
 }
 
 function handleUpdate(update) {
