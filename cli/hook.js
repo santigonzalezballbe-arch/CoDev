@@ -1,6 +1,7 @@
 // Claude Code hook handler. Receives the event JSON on stdin.
 // Golden rule: if CoDev fails (server down, etc.) it must never block the user's session.
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { findConfig, toProjectPath, api, teamSummary, projectRules, historyPath } from './config.js';
 
@@ -135,7 +136,8 @@ const isPrompt = (content) =>
     ? !content.startsWith('<')
     : Array.isArray(content) && content.some((c) => c.type === 'text') && !content.some((c) => c.type === 'tool_result');
 
-export function repliesSinceLastPrompt(transcript) {
+/** Claude's texts since the last prompt, each with a stable id (the transcript entry's uuid). */
+export function replyEntriesSinceLastPrompt(transcript) {
   const entries = [];
   for (const line of readTail(transcript).split('\n')) {
     if (!line.trim()) continue;
@@ -147,22 +149,48 @@ export function repliesSinceLastPrompt(transcript) {
   entries.forEach((e, i) => {
     if (e.type === 'user' && !e.isMeta && isPrompt(e.message?.content)) start = i;
   });
-  const texts = [];
+  const out = [];
   for (const e of entries.slice(start + 1)) {
     if (e.type !== 'assistant' || !Array.isArray(e.message?.content)) continue;
-    for (const c of e.message.content) if (c.type === 'text' && c.text?.trim()) texts.push(c.text.trim());
+    e.message.content.forEach((c, j) => {
+      if (c.type !== 'text' || !c.text?.trim()) return;
+      const text = c.text.trim();
+      out.push({ id: e.uuid ? `${e.uuid}:${j}` : `t:${hash(text)}`, text });
+    });
   }
-  return texts;
+  return out;
 }
 
-/** Sends the replies not sent yet in this turn. Returns how many were new. */
+const hash = (text) => crypto.createHash('sha1').update(text).digest('hex').slice(0, 16);
+
+/* The replies already sent, per session. Kept apart from the turn (which is reset at every prompt
+   and every Stop): a turn that starts without a prompt (a background task finishing, a wake-up)
+   reads the same texts again, and a count would send them all twice. */
+const sentFile = (cfg, input) => turnFile(cfg, input).replace(/\.json$/, '.sent.json');
+function readSent(cfg, input) {
+  try {
+    return JSON.parse(fs.readFileSync(sentFile(cfg, input), 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+/** Sends the replies not sent yet in this session. Returns how many were new. */
 async function sendReplies(cfg, input) {
   if (!input.transcript_path) return 0;
-  const texts = repliesSinceLastPrompt(input.transcript_path);
-  const turn = readTurn(cfg, input);
-  const fresh = texts.slice(turn.replied || 0);
-  for (const text of fresh) await api(cfg, 'activity', { kind: 'reply', tool: 'claude', summary: clip(text, 8000) });
-  if (fresh.length) writeTurn(cfg, input, { ...turn, replied: texts.length });
+  const sent = readSent(cfg, input);
+  const seen = new Set(sent);
+  const fresh = replyEntriesSinceLastPrompt(input.transcript_path).filter((r) => !seen.has(r.id));
+  for (const r of fresh) {
+    await api(cfg, 'activity', { kind: 'reply', tool: 'claude', summary: clip(r.text, 8000) });
+    sent.push(r.id);
+  }
+  if (fresh.length) {
+    try {
+      fs.mkdirSync(path.dirname(sentFile(cfg, input)), { recursive: true });
+      fs.writeFileSync(sentFile(cfg, input), JSON.stringify(sent.slice(-500)));
+    } catch {}
+  }
   return fresh.length;
 }
 
@@ -184,7 +212,7 @@ export async function runHook() {
     switch (input.hook_event_name) {
       case 'SessionStart':
       case 'UserPromptSubmit': {
-        if (input.hook_event_name === 'UserPromptSubmit') writeTurn(cfg, input, { edited: [], logged: false, replied: 0 });
+        if (input.hook_event_name === 'UserPromptSubmit') writeTurn(cfg, input, { edited: [], logged: false });
         // The rules go in even if the server cannot be reached.
         let team = null;
         try {
@@ -270,7 +298,7 @@ export async function runHook() {
           });
           return;
         }
-        writeTurn(cfg, input, { edited: [], logged: false, replied: 0 });
+        writeTurn(cfg, input, { edited: [], logged: false });
         await api(cfg, 'status', { status: 'idle', summary: 'Finished its turn' });
         return;
       }

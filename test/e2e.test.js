@@ -11,6 +11,10 @@ import { startServer } from '../server/server.js';
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'cli', 'codev.js');
 let server, base, dirA, dirB;
 
+// Run from a CoDev terminal, the CODEV_* variables point at the real room and win over the test's
+// .codev.json: the test prompts ("Build the login"...) would land in the team's history.
+for (const k of Object.keys(process.env)) if (k.startsWith('CODEV_')) delete process.env[k];
+
 function project(name) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `codev-${name}-`));
   fs.writeFileSync(path.join(dir, '.codev.json'), JSON.stringify({ server: base, room: 'test', name }));
@@ -193,10 +197,14 @@ test("Claude's replies reach the room once, and so does a request for attention"
   await hook(dirA, { ...sid, hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: 'style.css' } });
   line({ type: 'assistant', message: { content: [{ type: 'text', text: 'Done: **dark mode** follows the system setting.' }] } });
   await hook(dirA, { ...sid, hook_event_name: 'Stop' });
+  // A turn with no prompt (a background task finished): the earlier replies are not sent again.
+  line({ type: 'user', message: { role: 'user', content: '<task-notification>done</task-notification>' } });
+  line({ type: 'assistant', message: { content: [{ type: 'text', text: 'The build passed.' }] } });
+  await hook(dirA, { ...sid, hook_event_name: 'Stop' });
   await hook(dirA, { ...sid, hook_event_name: 'Notification', message: 'Claude needs your permission to use Bash' });
 
   const evs = (await state()).events.filter((e) => e.member === 'Ana');
-  assert.deepEqual(evs.filter((e) => e.kind === 'reply').map((e) => e.summary), ['I will look at the CSS first.', 'Done: **dark mode** follows the system setting.']);
+  assert.deepEqual(evs.filter((e) => e.kind === 'reply').map((e) => e.summary), ['I will look at the CSS first.', 'Done: **dark mode** follows the system setting.', 'The build passed.']);
   assert.equal(evs.findLast((e) => e.kind === 'attention').summary, 'Claude needs your permission to use Bash');
 });
 

@@ -7,7 +7,7 @@ import { getRoom } from './rooms.js';
 const MAX_PENDING_BYTES = 4_000_000;
 
 function termInfo(t) {
-  return { id: t.id, member: t.member, title: t.title, cols: t.cols, rows: t.rows, open: t.open, agent: t.agent || 'claude' };
+  return { id: t.id, member: t.member, title: t.title, cols: t.cols, rows: t.rows, open: t.open, agent: t.agent || 'claude', since: t.since };
 }
 
 /** Only the AIs CoDev knows about: an invalid id would give the wrong character on everyone's screen. */
@@ -89,6 +89,8 @@ export function attachTerminals(httpServer, { authorized = () => true, guests = 
             pending: [],
             pendingBytes: 0,
             open: true,
+            // When this AI session started: its conversation view shows only what happened since.
+            since: Math.min(Number(m.since) || Date.now(), Date.now()),
           };
           room.terminals.set(m.id, term);
           owned.add(m.id);

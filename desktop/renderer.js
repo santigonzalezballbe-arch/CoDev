@@ -1011,12 +1011,12 @@ const wsSend = (msg) => S.ws?.readyState === 1 && S.ws.send(JSON.stringify(msg))
 function announce(p) {
   p.term.write('', () => {
     p.queue = [];
-    wsSend({ t: 'term-open', id: p.id, member: p.member, title: p.title, agent: p.agent, cols: p.term.cols, rows: p.term.rows, d: p.ser.serialize({ scrollback: 1000 }) });
+    wsSend({ t: 'term-open', id: p.id, member: p.member, title: p.title, agent: p.agent, since: p.createdAt, cols: p.term.cols, rows: p.term.rows, d: p.ser.serialize({ scrollback: 1000 }) });
   });
 }
 
 /* ---------- Panes ---------- */
-function makePane({ id, member, local, title, agent = 'claude', model = '' }) {
+function makePane({ id, member, local, title, agent = 'claude', model = '', createdAt = Date.now() }) {
   const head = h('header', { class: 'pane-head' });
   const host = h('div', { class: 'term-host' });
   const waiting = h(
@@ -1028,7 +1028,7 @@ function makePane({ id, member, local, title, agent = 'claude', model = '' }) {
   // The conversation view lies over the terminal, which keeps its size and keeps running underneath.
   const convo = h('div', { class: 'convo' });
   const root = h('article', { class: `pane ${local ? 'local' : 'remote'}` }, head, h('div', { class: 'pane-body' }, wrap, convo));
-  const pane = { id, member, local, title, agent: AGENTS[agent] ? agent : 'claude', model, root, head, host, wrap, waiting, convo, createdAt: Date.now(), view: null };
+  const pane = { id, member, local, title, agent: AGENTS[agent] ? agent : 'claude', model, root, head, host, wrap, waiting, convo, createdAt, view: null };
   S.panes.set(id, pane);
   buildConvo(pane);
   applyView(pane);
@@ -1326,7 +1326,7 @@ function closeLocal(p) {
 
 /** Remote terminal: a read-only replica of a teammate's terminal. */
 function addRemote(info) {
-  const p = makePane({ id: info.id, member: info.member, local: false, title: info.title, agent: info.agent });
+  const p = makePane({ id: info.id, member: info.member, local: false, title: info.title, agent: info.agent, createdAt: Number(info.since) || Date.now() });
   p.term = newTerminal({ disableStdin: true, cursorBlink: false, cols: info.cols, rows: info.rows, scrollback: 1000 });
   p.term.open(p.host);
   p.ro = new ResizeObserver(() => rescale(p));
@@ -1606,7 +1606,10 @@ function inline(text) {
 
 function renderConvo(p, force = false) {
   if (viewOf(p) !== 'convo') return;
-  const evs = S.events.filter((e) => e.member === p.member && !['status', 'note'].includes(e.kind));
+  // Only this session: names are reused (a closed "Nova" frees the name for the next AI, the main
+  // terminal is always you), so older events of the same name belong to other conversations.
+  const since = p.createdAt - 5000;
+  const evs = S.events.filter((e) => e.member === p.member && e.ts >= since && !['status', 'note'].includes(e.kind));
   const key = `${evs.length}|${evs.at(-1)?.ts || 0}`;
   const state = paneState(p);
   p.cv.working.hidden = state !== 'working';
