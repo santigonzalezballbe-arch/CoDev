@@ -40,3 +40,11 @@ Canvis:
 Proves: `npm test` 37/37. No ho he provat en un Windows real (no en tinc cap aquí).
 
 Pendent: publicar una versió (v0.4.1) perquè arribi als instal·ladors. DeepSeek Harness i Codex encara no s'instal·len sols (necessiten Node.js).
+
+## 2026-11-21 23:35
+
+Petició: el hook `Stop` de CoDev demanava el registre de `desktop/renderer.js`, tot i que ja era a l'entrada de les 23:30 (commit `e93ec07`).
+
+Canvi: cap canvi de codi. Aquesta nota s'ha escrit amb l'eina Edit perquè el hook la detecti.
+
+Pendent: el hook `Stop` no veu les entrades del registre escrites des de Bash (`cat >> …`), només les que es fan amb Edit o Write. Caldria que comprovés el contingut del fitxer i no l'eina amb què s'ha escrit.
