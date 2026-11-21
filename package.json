@@ -29,5 +29,13 @@
   "devDependencies": {
     "electron": "^45.4.1"
   },
-  "main": "desktop/main.js"
+  "main": "desktop/main.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/santigonzalezballbe-arch/CoDev.git"
+  },
+  "homepage": "https://github.com/santigonzalezballbe-arch/CoDev#readme",
+  "bugs": {
+    "url": "https://github.com/santigonzalezballbe-arch/CoDev/issues"
+  }
 }
