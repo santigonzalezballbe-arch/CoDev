@@ -27,7 +27,7 @@ The app opens the AI you choose, but does not include any of them. Install the o
 
 | AI | What it needs |
 |---|---|
-| **Claude** | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and signed in. |
+| **Claude** | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and a Claude account. If it is not installed, CoDev installs it the first time you open a Claude terminal (with Anthropic's native installer; on Windows also Git for Windows, through winget), and Claude Code asks you to sign in. |
 | **DeepSeek** | Node.js 20+, the [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/en/guide/quickstart) (`npm i -g @deepseek-ai/dsh`) and a [DeepSeek API key](https://platform.deepseek.com/api_keys). No Claude Code needed. |
 | **Local** | Node.js 20+, the DeepSeek Harness and [Ollama](https://ollama.com) running, with at least one model pulled (`ollama pull qwen2.5-coder:7b`). No Claude Code needed. |
 | **ChatGPT** (experimental) | [OpenAI Codex CLI](https://github.com/openai/codex): `npm i -g @openai/codex`, then `codex login`. |

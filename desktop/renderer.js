@@ -242,7 +242,11 @@ function agentWarning(id) {
   }
   if (AI_STATE.info?.installed && AI_STATE.info.installed[a.command] === false) {
     const tool = a.command === 'codex' ? 'Codex' : a.command === 'dsh' ? 'The DeepSeek Harness' : 'Claude Code';
-    parts.push(`${tool} is not installed: ${a.install}.`);
+    parts.push(
+      a.command === 'claude'
+        ? 'Claude Code is not installed: CoDev installs it for you when your terminal opens (about a minute), then it asks you to sign in.'
+        : `${tool} is not installed: ${a.install}.`
+    );
   }
   return parts.join(' ');
 }
@@ -1294,6 +1298,7 @@ function flushQueue(p) {
 api.onPtyData((id, data) => {
   const p = S.panes.get(id);
   if (!p) return;
+  p.waiting.hidden = true; // output can arrive before the terminal is fully open (e.g. CoDev installing Claude Code)
   noteOutput(p);
   // Send output once xterm has processed it, so snapshots and chunks stay in order.
   p.term.write(data, () => {

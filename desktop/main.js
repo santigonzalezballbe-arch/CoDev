@@ -320,7 +320,96 @@ ipcMain.handle('agent-balance', async (_e, agent, fresh = false) => {
   return value;
 });
 
-const findCommand = (PATH, command) => PATH.split(path.delimiter).map((d) => path.join(d, command)).find((f) => fs.existsSync(f));
+const IS_WIN = process.platform === 'win32';
+// On Windows a command is claude.exe, codex.cmd…: try the executable extensions, never the bare name
+// (npm also leaves a shell script called just `codex` there, which Windows cannot run).
+const COMMAND_EXTS = IS_WIN ? ['.exe', '.cmd', '.bat', '.com'] : [''];
+/** Where installers put commands, even before this app's PATH knows about them (it is read once at start). */
+function installDirs() {
+  const home = os.homedir();
+  return IS_WIN
+    ? [path.join(home, '.local', 'bin'), path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'npm')]
+    : [path.join(home, '.local', 'bin'), path.join(home, '.claude', 'local'), '/usr/local/bin', '/opt/homebrew/bin'];
+}
+function findCommand(PATH, command) {
+  const dirs = [...new Set([...String(PATH || '').split(path.delimiter).filter(Boolean), ...installDirs()])];
+  for (const dir of dirs) {
+    for (const ext of COMMAND_EXTS) {
+      const file = path.join(dir, command + ext);
+      try {
+        if (fs.statSync(file).isFile()) return file;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+/* ---------- Installing Claude Code when it is missing ---------- */
+// Anthropic's native installer: it needs neither Node.js nor npm, and puts `claude` in ~/.local/bin.
+const CLAUDE_INSTALLER = IS_WIN
+  ? { file: 'powershell.exe', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://claude.ai/install.ps1 | iex'] }
+  : { file: '/bin/bash', args: ['-c', 'curl -fsSL https://claude.ai/install.sh | bash'] };
+// On Windows Claude Code runs its commands in Git Bash, so it needs Git for Windows.
+const GIT_INSTALLER = {
+  file: 'winget.exe',
+  args: ['install', '--id', 'Git.Git', '-e', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements'],
+};
+
+/** Runs an installer in a terminal of its own and streams what it prints to the window. */
+function runInstaller({ file, args }, { cols, rows, PATH, say }) {
+  return new Promise((resolve) => {
+    let proc;
+    try {
+      proc = pty.spawn(file, args, { name: 'xterm-256color', cols, rows, cwd: os.homedir(), env: { ...cleanEnv(), PATH, TERM: 'xterm-256color' } });
+    } catch (err) {
+      say(`${err.message}\r\n`);
+      return resolve(-1);
+    }
+    proc.onData(say);
+    proc.onExit(({ exitCode }) => resolve(exitCode));
+  });
+}
+
+function findGitBash(PATH) {
+  if (process.env.CLAUDE_CODE_GIT_BASH_PATH && fs.existsSync(process.env.CLAUDE_CODE_GIT_BASH_PATH)) return process.env.CLAUDE_CODE_GIT_BASH_PATH;
+  const roots = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')];
+  for (const root of roots.filter(Boolean)) {
+    const bash = path.join(root, 'Git', 'bin', 'bash.exe');
+    if (fs.existsSync(bash)) return bash;
+  }
+  const git = findCommand(PATH, 'git'); // …\Git\cmd\git.exe → …\Git\bin\bash.exe
+  const bash = git && path.join(path.dirname(path.dirname(git)), 'bin', 'bash.exe');
+  return bash && fs.existsSync(bash) ? bash : null;
+}
+
+let claudeInstall = null; // one install at a time, shared by every terminal that asks for it
+/** Finds Claude Code, installing it (and Git for Windows, which it needs there) when it is missing. */
+async function ensureClaude(PATH, opts) {
+  const dim = (t) => opts.say(`\x1b[2m${t}\x1b[0m\r\n`);
+  if (IS_WIN && !findGitBash(PATH)) {
+    dim('CoDev: Claude Code needs Git for Windows, which is not installed. Installing it with winget…');
+    const code = await runInstaller(GIT_INSTALLER, opts);
+    if (!findGitBash(PATH)) {
+      throw new Error(
+        `Could not install Git for Windows${code ? ` (winget exit code ${code})` : ''}. Install it from https://git-scm.com/download/win and open the terminal again.`
+      );
+    }
+  }
+  let file = findCommand(PATH, 'claude');
+  if (file) return file;
+  claudeInstall ||= (async () => {
+    dim('CoDev: Claude Code is not installed on this computer. Installing it now (about a minute)…');
+    const code = await runInstaller(CLAUDE_INSTALLER, opts);
+    return { code, file: findCommand(PATH, 'claude') };
+  })().finally(() => (claudeInstall = null));
+  const result = await claudeInstall;
+  if (!result.file) {
+    const how = IS_WIN ? 'irm https://claude.ai/install.ps1 | iex (in PowerShell)' : 'curl -fsSL https://claude.ai/install.sh | bash';
+    throw new Error(`Could not install Claude Code${result.code ? ` (exit code ${result.code})` : ''}. Install it with ${how} and open the terminal again.`);
+  }
+  dim('CoDev: Claude Code is installed. The first time it asks you to sign in with your Claude account.');
+  return result.file;
+}
 
 /** The DeepSeek Harness CLI: on PATH, or in the npm npx cache (how `npx @deepseek-ai/dsh` installs it). */
 function findDsh(PATH) {
@@ -353,7 +442,7 @@ ipcMain.handle('agents-info', async () => {
 
 ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agent, model }) => {
   const PATH = await getUserPath();
-  let file = process.env.SHELL || '/bin/bash';
+  let file = IS_WIN ? process.env.ComSpec || 'cmd.exe' : process.env.SHELL || '/bin/bash';
   let args = [];
   let extraEnv = {};
   let unset = [];
@@ -412,6 +501,11 @@ ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agen
         rules,
       });
       file = findCommand(PATH, spec.command);
+      if (!file && spec.command === 'claude') {
+        const sender = e.sender;
+        const say = (data) => !sender.isDestroyed() && sender.send('pty-data', id, data);
+        file = await ensureClaude(PATH, { cols, rows, PATH, say });
+      }
       if (!file) {
         throw new Error(`Cannot find \`${spec.command}\`. Install it with: ${a.install}${a.login ? `, then sign in with: ${a.login}` : ''}`);
       }
@@ -430,6 +524,11 @@ ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agen
   }
   const base = cleanEnv();
   for (const k of unset) delete base[k];
+  // A .cmd or .bat (an npm command on Windows) runs through cmd.exe.
+  if (IS_WIN && /\.(cmd|bat)$/i.test(file)) {
+    args = ['/d', '/s', '/c', file, ...args];
+    file = process.env.ComSpec || 'cmd.exe';
+  }
   const proc = pty.spawn(file, args, {
     name: 'xterm-256color',
     cols,

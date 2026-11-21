@@ -25,3 +25,18 @@ Canvis:
 Proves: `npm test` 37/37 amb les variables `CODEV_*` buides.
 
 Pendent: no he pogut comprovar l'API de saldo contra la documentació (la web refusava la connexió). He seguit el format conegut (`is_available` i `balance_infos[].total_balance`).
+
+## 2026-11-21 23:30
+
+Petició: a Windows sense Claude Code, CoDev diu que cal instal·lar-lo. Hauria d'instal·lar-lo sol.
+
+Canvis:
+- `desktop/main.js`: `findCommand` provava `claude` sense extensió, així que a Windows mai no trobava `claude.exe` ni els `.cmd` d'npm. Ara prova `.exe/.cmd/.bat/.com` i també les carpetes on els instal·ladors deixen les ordres (`~/.local/bin`, `%APPDATA%\npm`…), encara que el PATH de l'app encara no les tingui.
+- `desktop/main.js`: `ensureClaude()`: si falta Claude Code en obrir una terminal de Claude, l'instal·la amb l'instal·lador oficial (`install.ps1` a Windows, `install.sh` a macOS i Linux) i el progrés surt a la mateixa terminal. A Windows, si falta Git for Windows (Claude Code necessita Git Bash), primer l'instal·la amb winget. Només es fa una instal·lació alhora, encara que hi hagi diverses terminals.
+- `desktop/main.js`: a Windows la terminal normal fa servir `ComSpec` (abans `/bin/bash`), i els `.cmd`/`.bat` s'executen a través de `cmd.exe`.
+- `desktop/renderer.js`: l'avís de la pantalla d'inici ja no demana instal·lar Claude Code, i el cartell "Opening…" s'amaga quan arriba la primera sortida.
+- `README.md`: ara diu que CoDev instal·la Claude Code automàticament.
+
+Proves: `npm test` 37/37. No ho he provat en un Windows real (no en tinc cap aquí).
+
+Pendent: publicar una versió (v0.4.1) perquè arribi als instal·ladors. DeepSeek Harness i Codex encara no s'instal·len sols (necessiten Node.js).
