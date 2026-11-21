@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Punt d'entrada de la CLI de CoDev.
+// CoDev CLI entry point.
 import { findConfig, api, teamSummary } from './config.js';
 
 function parseArgs(argv) {
@@ -14,16 +14,16 @@ function parseArgs(argv) {
   return args;
 }
 
-const HELP = `CoDev — programa en equip amb IA sense trepitjar-vos
+const HELP = `CoDev — code as a team with AI without stepping on each other
 
-Ordres:
-  codev server [--port 4321]                       Arrenca el servidor i la web
-  codev init --room <sala> --name <nom> [--server URL]
-                                                   Connecta aquest projecte a una sala (hooks + MCP)
-  codev status                                     Mostra què fan els companys
-  codev watch                                      Publica canvis del disc (per a IA sense hooks)
-  codev hook                                       (intern) l'executen els hooks de Claude Code
-  codev mcp                                        (intern) servidor MCP per stdio
+Commands:
+  codev server [--port 4321] [--key <key>]         Start the server and the web view
+  codev init --room <room> --name <name> [--server URL] [--key <key>]
+                                                   Connect this project to a room (hooks + MCP)
+  codev status                                     Show what your teammates are doing
+  codev watch                                      Publish disk changes (for AIs without hooks)
+  codev hook                                       (internal) run by the Claude Code hooks
+  codev mcp                                        (internal) MCP server over stdio
 `;
 
 const args = parseArgs(process.argv.slice(2));
@@ -33,8 +33,9 @@ switch (cmd) {
   case 'server': {
     const { startServer } = await import('../server/server.js');
     const port = Number(args.port || process.env.PORT || 4321);
-    await startServer({ port, host: args.host || '0.0.0.0' });
-    console.log(`CoDev en marxa a http://localhost:${port}`);
+    const key = typeof args.key === 'string' ? args.key : null;
+    await startServer({ port, host: args.host || '0.0.0.0', key });
+    console.log(`CoDev running at http://localhost:${port}${key ? ' (key required)' : ''}`);
     break;
   }
   case 'init': {
@@ -60,11 +61,11 @@ switch (cmd) {
   case 'status': {
     const cfg = findConfig();
     if (!cfg) {
-      console.error('No hi ha .codev.json. Executa `codev init`.');
+      console.error('No .codev.json found. Run `codev init`.');
       process.exit(1);
     }
     const state = await api(cfg, 'state');
-    console.log(teamSummary(cfg, state, { maxEvents: 10 }) || 'No hi ha cap company a la sala.');
+    console.log(teamSummary(cfg, state, { maxEvents: 10 }) || 'There are no teammates in the room.');
     break;
   }
   default:

@@ -1,16 +1,32 @@
-// Servidor de CoDev: API HTTP + Server-Sent Events + web estàtica. Sense dependències.
+// CoDev server: HTTP API + Server-Sent Events + WebSocket terminal relay + static web view.
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getRoom, allRooms } from './rooms.js';
 import { attachTerminals } from './terminals.js';
 
-const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
+const ROOT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DESKTOP_DIR = path.join(ROOT_DIR, 'desktop');
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.css': 'text/css',
+  '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
+};
+
+// The desktop app loads from file:// (origin "null"): it needs CORS to talk to the server.
+const CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'content-type, x-codev-key',
+};
 
 function sendJson(res, status, body) {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  res.writeHead(status, { ...CORS, 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
 }
 
@@ -21,7 +37,7 @@ function readBody(req) {
     req.on('data', (c) => {
       size += c.length;
       if (size > 1_000_000) {
-        reject(new Error('Cos massa gran'));
+        reject(new Error('Body too large'));
         req.destroy();
       } else chunks.push(c);
     });
@@ -29,7 +45,7 @@ function readBody(req) {
       try {
         resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {});
       } catch {
-        reject(new Error('JSON invàlid'));
+        reject(new Error('Invalid JSON'));
       }
     });
     req.on('error', reject);
@@ -39,11 +55,26 @@ function readBody(req) {
 const clip = (s, n) => (typeof s === 'string' ? (s.length > n ? s.slice(0, n) + '…' : s) : s);
 const cleanFiles = (files) => (Array.isArray(files) ? files.filter((f) => typeof f === 'string' && f).slice(0, 50) : []);
 
+/**
+ * The browser view is the desktop app's own UI (desktop/index.html), which runs as a watch-only
+ * viewer when it is not inside Electron. Only the files that UI needs are served.
+ */
+function staticFile(pathname) {
+  if (pathname === '/' || pathname === '/index.html') return path.join(DESKTOP_DIR, 'index.html');
+  if (pathname === '/style.css' || pathname === '/renderer.js') return path.join(DESKTOP_DIR, pathname.slice(1));
+  for (const pkg of ['/node_modules/@xterm/', '/node_modules/@fontsource/']) {
+    if (pathname.startsWith(pkg)) {
+      const base = path.join(ROOT_DIR, pkg);
+      const file = path.normalize(path.join(ROOT_DIR, decodeURIComponent(pathname)));
+      return file.startsWith(base) ? file : null;
+    }
+  }
+  return null;
+}
+
 function serveStatic(req, res) {
-  const url = new URL(req.url, 'http://x');
-  const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-  const file = path.normalize(path.join(PUBLIC_DIR, rel));
-  if (!file.startsWith(PUBLIC_DIR)) return sendJson(res, 403, { error: 'forbidden' });
+  const file = staticFile(new URL(req.url, 'http://x').pathname);
+  if (!file) return sendJson(res, 404, { error: 'not found' });
   fs.readFile(file, (err, data) => {
     if (err) return sendJson(res, 404, { error: 'not found' });
     res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
@@ -63,8 +94,12 @@ async function handleApi(req, res, roomId, action) {
   if (req.method === 'GET' && action === 'stream') {
     const viewer = url.searchParams.get('viewer');
     res.writeHead(200, {
+      ...CORS,
       'content-type': 'text/event-stream',
-      'cache-control': 'no-cache',
+      // no-transform + x-accel-buffering: proxies such as Cloudflare (used by "Share online")
+      // must pass each event through at once instead of compressing and buffering the stream.
+      'cache-control': 'no-cache, no-transform',
+      'x-accel-buffering': 'no',
       connection: 'keep-alive',
     });
     res.write(`data: ${JSON.stringify({ type: 'snapshot', data: room.snapshot() })}\n\n`);
@@ -87,7 +122,7 @@ async function handleApi(req, res, roomId, action) {
 
   const body = await readBody(req);
   const name = typeof body.member === 'string' && body.member.trim() ? body.member.trim().slice(0, 40) : null;
-  if (!name) return sendJson(res, 400, { error: 'falta "member"' });
+  if (!name) return sendJson(res, 400, { error: 'missing "member"' });
 
   switch (action) {
     case 'intent': {
@@ -120,18 +155,27 @@ async function handleApi(req, res, roomId, action) {
           ? { old: clip(body.diff.old, 4000) || '', new: clip(body.diff.new, 4000) || '' }
           : undefined,
       });
-      // Canvis detectats per "codev watch": avisa si toquen fitxers d'una altra persona.
+      // Changes seen by "codev watch": warn if they touch someone else's files.
       if (body.checkClaims) {
         for (const c of room.checkFiles(name, files)) {
           room.addEvent(name, {
             kind: 'conflict',
-            summary: `Ha modificat ${c.file}, reclamat per ${c.owner}`,
+            summary: `Changed ${c.file}, which is claimed by ${c.owner}`,
             files: [c.file],
             owner: c.owner,
           });
         }
       }
       return sendJson(res, 200, { ok: true, id: ev.id });
+    }
+    case 'meta': {
+      // The room's repository: set by whoever creates the room; whoever joins can clone it automatically.
+      const repo = typeof body.repo === 'string' ? body.repo.trim().slice(0, 200) : '';
+      if (repo && (!room.meta.repo || body.force)) {
+        room.meta.repo = repo;
+        room.broadcast('meta', room.meta);
+      }
+      return sendJson(res, 200, { ok: true, meta: room.meta });
     }
     case 'note': {
       room.member(name);
@@ -144,15 +188,36 @@ async function handleApi(req, res, roomId, action) {
       return sendJson(res, 200, { ok: true });
     }
     default:
-      return sendJson(res, 404, { error: `acció desconeguda: ${action}` });
+      return sendJson(res, 404, { error: `unknown action: ${action}` });
   }
 }
 
-export function startServer({ port = 4321, host = '0.0.0.0' } = {}) {
+/**
+ * Returns a check for the server key. With no key the server is open (local network use).
+ * With a key, every room request, event stream and WebSocket must carry it, in the
+ * x-codev-key header or the ?key= query parameter (EventSource and WebSocket cannot set headers).
+ */
+export function keyCheck(key) {
+  if (!key) return () => true;
+  const expected = Buffer.from(String(key));
+  return (req) => {
+    const url = new URL(req.url, 'http://x');
+    const got = Buffer.from(String(req.headers['x-codev-key'] || url.searchParams.get('key') || ''));
+    return got.length === expected.length && crypto.timingSafeEqual(got, expected);
+  };
+}
+
+export function startServer({ port = 4321, host = '0.0.0.0', key = null, guests = null } = {}) {
+  const authorized = keyCheck(key);
   const server = http.createServer(async (req, res) => {
     try {
-      if (req.url === '/api/info') return sendJson(res, 200, { app: 'codev', version: 2, terminals: true });
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, CORS);
+        return res.end();
+      }
+      if (req.url === '/api/info') return sendJson(res, 200, { app: 'codev', version: 3, terminals: true, locked: !!key });
       const m = req.url.match(/^\/api\/rooms\/([^/?]+)\/(\w+)/);
+      if (m && !authorized(req)) return sendJson(res, 401, { error: 'This room needs a key. Ask your teammate for a new invite.' });
       if (m) return await handleApi(req, res, decodeURIComponent(m[1]).slice(0, 60), m[2]);
       if (req.method === 'GET') return serveStatic(req, res);
       sendJson(res, 404, { error: 'not found' });
@@ -161,7 +226,7 @@ export function startServer({ port = 4321, host = '0.0.0.0' } = {}) {
     }
   });
 
-  // Cada 30 s: neteja reclamacions caducades i envia un "tick" perquè la web refresqui estats.
+  // Every 30 s: drop expired claims and send a "tick" so clients refresh their states.
   const timer = setInterval(() => {
     for (const room of allRooms()) {
       room.pruneClaims();
@@ -169,7 +234,7 @@ export function startServer({ port = 4321, host = '0.0.0.0' } = {}) {
     }
   }, 30_000);
   server.on('close', () => clearInterval(timer));
-  const wss = attachTerminals(server);
+  const wss = attachTerminals(server, { authorized, guests });
   server.on('close', () => {
     for (const ws of wss.clients) ws.terminate();
   });

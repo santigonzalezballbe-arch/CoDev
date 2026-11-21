@@ -2,3 +2,4 @@ node_modules/
 .codev.json
 .claude/settings.local.json
 graphify-out/
+.taste-skill/

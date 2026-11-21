@@ -1,4 +1,4 @@
-// Prova d'extrem a extrem: servidor real + "codev hook" i "codev mcp" executats com ho faria Claude Code.
+// End-to-end test: a real server + "codev hook" and "codev mcp" run exactly as Claude Code would.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -38,16 +38,16 @@ before(async () => {
 });
 after(() => server.close());
 
-test('el prompt es publica com a tasca actual', async () => {
-  await hook(dirA, { hook_event_name: 'UserPromptSubmit', prompt: 'Fes el login' });
+test('the prompt is published as the current task', async () => {
+  await hook(dirA, { hook_event_name: 'UserPromptSubmit', prompt: 'Build the login' });
   const s = await state();
-  assert.equal(s.members.find((m) => m.name === 'Ana').intent, 'Fes el login');
+  assert.equal(s.members.find((m) => m.name === 'Ana').intent, 'Build the login');
 });
 
-test('una edició reclama el fitxer i bloqueja la IA del company', async () => {
+test("an edit claims the file and blocks the teammate's AI", async () => {
   const edit = { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/auth.js', old_string: 'a', new_string: 'b' } };
   const a = await hook(dirA, edit);
-  assert.equal(a.out, '', 'sense conflicte no ha d\'interferir en els permisos');
+  assert.equal(a.out, '', 'without a conflict it must not interfere with permissions');
 
   const b = await hook(dirB, { ...edit, tool_input: { ...edit.tool_input, file_path: path.join(dirB, 'src/auth.js') } });
   const res = JSON.parse(b.out);
@@ -59,27 +59,27 @@ test('una edició reclama el fitxer i bloqueja la IA del company', async () => {
   assert.ok(s.events.some((e) => e.kind === 'conflict' && e.member === 'Marc'));
 });
 
-test('la IA rep context del que fa el company', async () => {
-  const r = await hook(dirB, { hook_event_name: 'UserPromptSubmit', prompt: 'Fes el perfil' });
+test('the AI gets context about what the teammate is doing', async () => {
+  const r = await hook(dirB, { hook_event_name: 'UserPromptSubmit', prompt: 'Build the profile' });
   const ctx = JSON.parse(r.out).hookSpecificOutput.additionalContext;
   assert.match(ctx, /Ana/);
   assert.match(ctx, /src\/auth\.js/);
-  assert.match(ctx, /Fes el login/);
+  assert.match(ctx, /Build the login/);
 });
 
-test('PostToolUse publica l\'activitat amb diff', async () => {
+test('PostToolUse publishes the activity with a diff', async () => {
   await hook(dirA, { hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/auth.js', old_string: 'x', new_string: 'y' } });
   const ev = (await state()).events.findLast((e) => e.kind === 'edit');
-  assert.equal(ev.summary, 'Ha editat src/auth.js');
+  assert.equal(ev.summary, 'Edited src/auth.js');
   assert.deepEqual(ev.diff, { old: 'x', new: 'y' });
 });
 
-test('SessionEnd allibera els fitxers', async () => {
+test('SessionEnd releases the files', async () => {
   await hook(dirA, { hook_event_name: 'SessionEnd' });
   assert.equal((await state()).claims.length, 0);
 });
 
-test('el servidor MCP respon i les eines funcionen', async () => {
+test('the MCP server answers and its tools work', async () => {
   const msgs = [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } },
     { jsonrpc: '2.0', method: 'notifications/initialized' },
@@ -107,11 +107,11 @@ test('el servidor MCP respon i les eines funcionen', async () => {
   lines.sort((a, b) => a.id - b.id);
   assert.equal(lines[0].result.serverInfo.name, 'codev');
   assert.equal(lines[1].result.tools.length, 5);
-  assert.match(lines[2].result.content[0].text, /Reclamats: src\/Profile\.jsx/);
+  assert.match(lines[2].result.content[0].text, /Claimed: src\/Profile\.jsx/);
   assert.match(lines[3].result.content[0].text, /Ana/);
 });
 
-test('les terminals es retransmeten i qui arriba tard rep la foto', async () => {
+test('terminals are relayed and late joiners get the snapshot', async () => {
   const { WebSocket } = await import('ws');
   const wsUrl = base.replace('http', 'ws') + '/ws?room=test&member=';
   const open = (name) =>
@@ -131,10 +131,10 @@ test('les terminals es retransmeten i qui arriba tard rep la foto', async () => 
   assert.ok(marc.msgs.some((m) => m.t === 'terms' && m.list.some((t) => t.id === 't1' && t.member === 'Ana')));
   assert.ok(marc.msgs.some((m) => m.t === 'term-data' && m.d === '+dades'));
 
-  // El Marc no pot escriure al terminal de l'Ana.
-  marc.ws.send(JSON.stringify({ t: 'term-data', id: 't1', d: 'intrús' }));
+  // Marc cannot write to Ana's terminal.
+  marc.ws.send(JSON.stringify({ t: 'term-data', id: 't1', d: 'intruder' }));
   await tick();
-  assert.ok(!ana.msgs.some((m) => m.d === 'intrús'));
+  assert.ok(!ana.msgs.some((m) => m.d === 'intruder'));
 
   const late = await open('Laura');
   await tick();
@@ -142,7 +142,7 @@ test('les terminals es retransmeten i qui arriba tard rep la foto', async () => 
 
   ana.ws.close();
   await tick();
-  assert.ok(marc.msgs.findLast((m) => m.t === 'terms').list.length === 0, 'en tancar-se, el terminal desapareix');
+  assert.ok(marc.msgs.findLast((m) => m.t === 'terms').list.length === 0, 'when it closes, the terminal goes away');
   marc.ws.close();
   late.ws.close();
 });

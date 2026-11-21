@@ -18,5 +18,5 @@ jobs:
           cache: npm
       - run: npm ci
         env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1' # els tests no necessiten Electron
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1' # the tests do not need Electron
       - run: npm test

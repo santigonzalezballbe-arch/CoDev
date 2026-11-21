@@ -1,116 +1,125 @@
 # CoDev
 
-**Programa en equip amb IA sense trepitjar-vos.**
+**Code as a team with AI without stepping on each other.**
 
-Avui gairebé ningú escriu el codi a mà: cadascú dona instruccions a la seva IA. El problema arriba quan dues persones (i dues IA) treballen en el mateix projecte alhora: es modifiquen els mateixos fitxers, una IA desfà el que ha fet l'altra i acabeu amb conflictes.
+Hardly anyone writes code by hand anymore: everyone gives instructions to their own AI. The trouble starts when two people (and two AIs) work on the same project at once. They change the same files, one AI undoes what the other just did, and you end up with conflicts.
 
-CoDev ho soluciona amb tres peces:
+CoDev fixes this with three pieces:
 
-1. **Pantalla partida en directe**: una app d'escriptori amb les terminals de Claude Code de tot l'equip, una al costat de l'altra. A la teva hi escrius com sempre. Les dels companys les veus en directe, exactament com les veuen ells. Al damunt de cada terminal hi ha la tasca actual i els fitxers reclamats. També hi ha una versió web amb el flux d'activitat.
-2. **La teva IA sap què fa la del company**: abans de cada prompt, CoDev afegeix al context de la teva IA un resum de la feina dels companys (tasca, fitxers reclamats, activitat recent i notes).
-3. **Bloqueig de fitxers**: quan una IA edita un fitxer, el reclama. Si una altra IA el vol editar, CoDev bloqueja l'edició i li explica qui hi treballa i en què. Les IA poden demanar-se coses entre elles amb notes.
+1. **A live split screen.** A desktop app with the whole team's Claude Code terminals side by side. You type in yours as usual. You watch your teammates' terminals live, exactly as they see them. Above each terminal, a small character shows what that Claude is doing (working, typing, waiting, asleep...), along with its current task and the files it holds. Anyone can also watch the room from a browser, with the same interface.
+2. **Your AI knows what your teammate's AI is doing.** Before every prompt, CoDev adds a summary of the team's work to your AI's context: tasks, claimed files, recent activity and notes.
+3. **File locking.** When an AI edits a file, it claims it. If another AI tries to edit that file, CoDev blocks the edit and tells it who is working there and on what. The AIs can also ask each other for things with notes.
 
-## App d'escriptori (recomanat)
+## Desktop app (recommended)
 
 ```bash
-npm install          # Electron, xterm.js i el PTY (també descarrega el binari d'Electron)
+npm install          # Electron, xterm.js and the PTY (also downloads the Electron binary)
 npm run app
 ```
 
-1. **Tria la carpeta del projecte** (la teva còpia del repositori), el teu nom i el nom de la sala.
-2. Tria **Crear la sala** si el teu ordinador fa de servidor, o **Unir-me a una sala** i escriu l'adreça que t'ha passat el company (p. ex. `http://192.168.1.20:4321`).
-3. Entra. L'app configura els hooks i el MCP al projecte i obre Claude Code a la teva terminal.
+1. Write **your name** and choose **where you will work**: a **GitHub repository** (it suggests your repositories if you are signed in with `gh`, or paste any URL) or a **local folder**.
+2. Choose **Create a room** if your computer will be the server, and who can join: **Same network** or **Anyone with the invite** (over the internet, see below). Or choose **Join a room** and paste the invite your teammate sent you: it fills in the server, the room and the key. If the room already has a repository, the app detects it and clones it for you into `~/CoDev/<name>`.
+3. Enter. The app sets up the hooks and the MCP server in the project and opens Claude Code in your terminal.
 
-Què hi trobaràs:
-- **La teva terminal** (esquerra): un Claude Code real. Hi escrius com sempre. `Ctrl+Shift+C` copia la selecció.
-- **Les terminals dels companys** (dreta): rèpliques en directe i de només lectura, amb les mateixes columnes i files que l'original.
-- **+ Claude Code**: obre una altra sessió teva. Cada sessió compta com un agent propi ("Santi 2"...) i té els seus fitxers reclamats.
-- **Convida**: copia l'adreça de xarxa local del servidor per enviar-la al company.
-- **Notes**: barra superior per enviar missatges a un company o a tot l'equip. Les IA també se'n poden enviar.
-- **Avisos**: quan CoDev atura una IA perquè anava a tocar un fitxer d'un altre, surt una franja vermella.
+What you will find:
+- **Your terminal** (left): a real Claude Code. You type in it as usual. `Ctrl+Shift+C` copies the selection.
+- **Your teammates' terminals** (right): live, read-only replicas with the same columns and rows as the original.
+- **The character** above each terminal shows its state: *working*, *typing*, *waiting*, *asleep*, *stopped by CoDev* or *offline*. Typing is detected without ever sending what you type.
+- **Another Claude**: opens another session of your own. Each session counts as its own agent ("Alex 2"...) with its own claimed files.
+- **Invite**: copies a one-line invite link with the server, the room and the room key. Opened in a browser, the page offers to open the CoDev app (through a `codev://` link) and the app jumps straight into the join screen of that room. Without the app, the same page lets you watch the room in the browser. Pasting the link into the app's join screen also fills in everything.
+- **Share online / Stop sharing online**: the room's host can open or close the internet link at any time.
+- **Notes**: the top bar sends messages to one teammate or the whole team. The AIs can send notes too.
+- **Alerts**: when CoDev stops an AI because it was about to touch someone else's file, a banner appears.
 
-Si el company és en una altra xarxa, exposa el port 4321 amb un túnel (`cloudflared tunnel --url http://localhost:4321`) i passa-li aquella URL.
+If port 4321 is taken, the app uses the next free one.
 
-## Arquitectura
+### From a browser
+
+The invite link works in any browser, with the same black-and-white interface: every terminal in the room, live, with the characters and the notes. When the CoDev app is installed, the page offers to open it (`codev://join?...`); running from source on Linux, the app registers that link type the first time it starts, with a small `~/.local/share/applications/codev-dev.desktop` file. **Get the CoDev app** links here.
+
+A browser cannot run programs on its own computer, so **Open my Claude Code** asks the room's host for a terminal on *their* computer:
+
+1. The host sees who is asking and clicks **Allow** or **Deny** (unanswered requests are denied after 2 minutes).
+2. If the project is a git repository, the guest gets their own copy as a git worktree, on branch `codev/<name>` (in `~/CoDev/worktrees/`), so they never edit the host's files directly. Otherwise they work in the same folder, and the request says so.
+3. Claude Code starts there with an empty, temporary config folder: the guest signs in with **their own Claude account**. The folder is deleted when the terminal closes, so their sign-in never stays on the host's computer.
+4. The host sees the guest's terminal marked *running on this computer* and can **Stop** it at any time. It also stops when the guest leaves.
+
+Only allow people you trust: the guest's Claude Code can run commands on the host's computer, like a shared terminal.
+
+## Architecture
 
 ```
- App de l'Ana                           Servidor CoDev                     App del Marc
+ Ana's app                              CoDev server                       Marc's app
 ┌────────────────────────┐        ┌─────────────────────────┐        ┌────────────────────────┐
-│ xterm.js ⇄ PTY: claude │──WS───▶│ retransmissió terminals │◀──WS───│ xterm.js ⇄ PTY: claude │
-│   ├─ codev hook ───────┼─HTTP──▶│ sales: membres, tasques,│◀─HTTP──┼── codev hook           │
-│   └─ codev mcp         │        │ fitxers reclamats,      │        │   codev mcp            │
-│ capçaleres ◀── SSE ────│◀───────│ activitat, notes        │───────▶│ ── SSE ──▶ capçaleres  │
+│ xterm.js ⇄ PTY: claude │──WS───▶│ terminal relay          │◀──WS───│ xterm.js ⇄ PTY: claude │
+│   ├─ codev hook ───────┼─HTTP──▶│ rooms: members, tasks,  │◀─HTTP──┼── codev hook           │
+│   └─ codev mcp         │        │ claimed files, repo,    │        │   codev mcp            │
+│ headers ◀───── WS ─────│◀───────│ activity, notes         │───────▶│ ───── WS ────▶ headers │
 └────────────────────────┘        └─────────────────────────┘        └────────────────────────┘
 ```
 
-- `desktop/`: app Electron. `main.js` gestiona els PTY i pot allotjar el servidor. `renderer.js` conté els terminals xterm.js, la retransmissió i les capçaleres.
-- `server/`: API REST, Server-Sent Events (activitat), WebSocket (`terminals.js`, retransmissió de terminals) i la web estàtica.
-- `public/`: la versió web (flux d'activitat, sense terminals).
-- `cli/`: l'ordre `codev`. Inclou els hooks de Claude Code, el servidor MCP, `init`, `watch` i `status`.
-- `scripts/demo.js`: simula dues persones treballant, per veure la web en acció.
-- `test/`: proves d'extrem a extrem amb el servidor, els hooks, el MCP i la retransmissió de terminals reals.
+- `desktop/`: the Electron app. `main.js` runs the PTYs, clones repositories, hosts the server and opens the tunnel. `cloudflared.js` finds or downloads cloudflared. `renderer.js` holds the xterm.js terminals, the relay, the headers and the character.
+- `server/`: REST API, WebSocket (`terminals.js`: terminals and room events) and the browser view, which is the desktop UI itself served from `desktop/`.
+- `cli/`: the `codev` command. It includes the Claude Code hooks, the MCP server, `init`, `watch` and `status`.
+- `test/`: end-to-end tests with the real server, hooks, MCP server and terminal relay.
 
-**Com es retransmet una terminal:** l'app envia la sortida del PTY quan xterm.js ja l'ha processada. Cada 3 segons envia també una "foto" de la pantalla (`@xterm/addon-serialize`). El servidor guarda la darrera foto i els trossos posteriors, així qui es connecta tard veu la pantalla exacta. Només el propietari pot publicar al seu terminal.
+**How a terminal is relayed:** the app sends the PTY output once xterm.js has processed it. Every 3 seconds it also sends a snapshot of the screen (`@xterm/addon-serialize`). The server keeps the latest snapshot and the chunks after it, so whoever connects late sees the exact screen. Only the owner can publish to their own terminal.
 
-## Ús sense l'app (CLI + web)
+## Without the app (CLI only)
 
-### 1. Arrenca el servidor (un sol cop per a tot l'equip)
+The hooks and the MCP server work on their own, with no window: file locking and team context between AIs. To see each other's terminals, use the desktop app.
+
+### 1. Start the server (once for the whole team)
 
 ```bash
 node cli/codev.js server            # http://localhost:4321
 ```
 
-Si el teu company és en una altra xarxa, exposa el port amb un túnel (per exemple, `cloudflared tunnel --url http://localhost:4321`) i feu servir aquesta URL com a `--server`.
+If your teammate is on another network, expose the port with a tunnel (for example `cloudflared tunnel --url http://localhost:4321`) and use that URL as `--server`.
 
-### 2. Connecta el projecte (cada persona, a la seva còpia del repositori)
-
-```bash
-npm link                            # opcional: fa que l'ordre `codev` estigui disponible a tot arreu
-cd el-teu-projecte
-codev init --room el-meu-projecte --name Santi --server http://localhost:4321
-```
-
-Això:
-- crea `.codev.json` (sala, nom i servidor) i l'afegeix al `.gitignore`;
-- afegeix els hooks a `.claude/settings.local.json` sense tocar els que ja tinguis;
-- registra el servidor MCP `codev` a Claude Code (àmbit local).
-
-La primera vegada, Claude Code et preguntarà si confies en la carpeta, perquè té hooks: respon que sí.
-
-### 3. Obre la pantalla partida i treballa
-
-Obre `http://localhost:4321/?room=el-meu-projecte&name=Santi` i fes servir Claude Code com sempre. Amb el botó **Convida** copies l'enllaç per al teu company.
-
-### Provar-ho sense company
+### 2. Connect the project (each person, in their own copy of the repository)
 
 ```bash
-node cli/codev.js server &
-npm run demo                         # simula l'Ana i el Marc a la sala "demo"
-# obre http://localhost:4321/?room=demo&name=Ana
+npm link                            # optional: makes the `codev` command available everywhere
+cd your-project
+codev init --room my-project --name Alex --server http://localhost:4321
 ```
 
-## Què fa cada hook
+If the server was started with `--key`, pass the same `--key` to `codev init`.
 
-| Hook de Claude Code | Què fa CoDev |
+This:
+- creates `.codev.json` (room, name and server) and adds it to `.gitignore`;
+- adds the hooks to `.claude/settings.local.json` without touching the ones you already have;
+- registers the `codev` MCP server in Claude Code (local scope).
+
+The first time, Claude Code asks whether you trust the folder, because it has hooks. Say yes.
+
+### 3. Work
+
+Use Claude Code as usual. `codev status` shows what your teammates are doing.
+
+## What each hook does
+
+| Claude Code hook | What CoDev does |
 |---|---|
-| `SessionStart` / `UserPromptSubmit` | Publica el teu prompt com a "tasca actual" i injecta a la IA el resum de l'equip |
-| `PreToolUse` (Edit/Write/MultiEdit/NotebookEdit) | Reclama el fitxer. Si és d'un altre, **denega** l'edició i n'explica el motiu |
-| `PostToolUse` | Publica l'acció (amb diff si és una edició) |
-| `Stop` | Marca la teva IA com a "esperant" |
-| `SessionEnd` | Allibera els teus fitxers |
+| `SessionStart` / `UserPromptSubmit` | Publishes your prompt as the "current task" and gives the AI the team summary |
+| `PreToolUse` (Edit/Write/MultiEdit/NotebookEdit) | Claims the file. If it belongs to someone else, **denies** the edit and explains why |
+| `PostToolUse` | Publishes the action (with a diff if it is an edit) |
+| `Stop` | Marks your AI as "waiting" |
+| `SessionEnd` | Releases your files |
 
-Si el servidor no respon, els hooks no fan res: CoDev no bloqueja mai la feina per una errada pròpia. Les reclamacions caduquen al cap de 20 minuts sense activitat.
+If the server does not answer, the hooks do nothing: CoDev never blocks your work because of its own failure. Claims expire after 20 minutes without activity.
 
-## Eines MCP per a la IA
+## MCP tools for the AI
 
-- `codev_team_status`: què fan els companys.
-- `codev_claim_files` / `codev_release_files`: reservar o alliberar fitxers per endavant.
-- `codev_send_note`: enviar una nota a un company (la veu a la web i la rep la seva IA).
-- `codev_set_intent`: anunciar el pla actual.
+- `codev_team_status`: what your teammates are doing.
+- `codev_claim_files` / `codev_release_files`: reserve or release files ahead of time.
+- `codev_send_note`: send a note to a teammate (they see it on screen and their AI receives it).
+- `codev_set_intent`: announce the current plan.
 
-## Altres IA (Cursor, Copilot...)
+## Other AIs (Cursor, Copilot...)
 
-Sense hooks no es poden bloquejar edicions, però `codev watch` publica cada canvi del disc a la sala i marca un conflicte si toques un fitxer reclamat per un altre. Si l'eina admet MCP, pots registrar-hi `node cli/codev.js mcp`.
+Without hooks, edits cannot be blocked, but `codev watch` publishes every disk change to the room and flags a conflict if you touch a file claimed by someone else. If the tool supports MCP, you can register `node cli/codev.js mcp` in it.
 
 ## Tests
 
@@ -118,20 +127,25 @@ Sense hooks no es poden bloquejar edicions, però `codev watch` publica cada can
 npm test
 ```
 
-## Limitacions actuals (MVP)
+## Current limitations (MVP)
 
-- L'estat és en memòria: si reinicies el servidor, es perd.
-- Les terminals dels companys són de només lectura (de moment no es pot escriure a la terminal d'un altre).
-- Si una terminal s'encongeix mentre Claude Code treballa (p. ex. quan entra un company nou), poden quedar restes de dibuix fins al següent redibuixat.
-- No hi ha autenticació: el nom de la sala fa de contrasenya. No l'exposis a internet amb dades sensibles.
-- Els bloquejos són per fitxer, no per funció ni per línia.
-- Les ordres de `Bash` que modifiquen fitxers (`sed`, `mv`...) no es bloquegen; només es mostren.
+- State lives in memory: restarting the server loses it.
+- Teammates' terminals are read-only (you cannot type in someone else's terminal yet).
+- A guest terminal runs on the host's computer: it is as powerful as a shared terminal there, and it only exists while the host's app is open.
+- If a terminal shrinks while Claude Code is working (for example when a new teammate joins), drawing artifacts may remain until the next redraw.
+- Access control is one key per room, shared through the invite: there are no user accounts, and anyone holding the invite can watch. Rooms started with `codev server` without `--key` are open to anyone who can reach them.
+- Locks are per file, not per function or line.
+- `Bash` commands that change files (`sed`, `mv`...) are not blocked, only shown.
 
-## Idees per a properes versions
+## Ideas for next versions
 
-- Persistència i autenticació (comptes, sales privades, invitacions).
-- Integració amb git: veure les branques de cadascú i avisar de conflictes abans del merge.
-- Bloqueig per símbol o funció en lloc de per fitxer.
-- Empaquetar l'app (AppImage / .deb / .dmg / .exe) amb electron-builder.
-- Permetre que el propietari doni control de la seva terminal a un company.
-- Connectors per a més agents (Cursor, Codex, Gemini CLI...).
+- Persistence and user accounts (per-person access, revoking an invite).
+- Git integration: see each person's branch and warn about conflicts before merging.
+- Locking per symbol or function instead of per file.
+- Package the app (AppImage / .deb / .dmg / .exe) with electron-builder.
+- Let an owner hand control of their terminal to a teammate.
+- Connectors for more agents (Cursor, Codex, Gemini CLI...).
+
+## License
+
+[MIT](LICENSE)

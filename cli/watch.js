@@ -1,4 +1,4 @@
-// "codev watch": per a IA sense hooks (Cursor, Copilot...). Observa el disc i publica els canvis.
+// "codev watch": for AIs without hooks (Cursor, Copilot...). Watches the disk and publishes changes.
 import fs from 'node:fs';
 import { findConfig, api } from './config.js';
 
@@ -7,11 +7,11 @@ const IGNORED = /(^|\/)(\.git|node_modules|\.next|dist|build|\.venv|__pycache__|
 export function runWatch() {
   const cfg = findConfig();
   if (!cfg) {
-    console.error('No hi ha .codev.json. Executa primer `codev init`.');
+    console.error('No .codev.json found. Run `codev init` first.');
     process.exit(1);
   }
   const timers = new Map();
-  console.log(`CoDev observa ${cfg.root} → sala "${cfg.room}" com a ${cfg.name}`);
+  console.log(`CoDev is watching ${cfg.root} → room "${cfg.room}" as ${cfg.name}`);
 
   fs.watch(cfg.root, { recursive: true }, (_event, filename) => {
     if (!filename) return;
@@ -28,7 +28,7 @@ export function runWatch() {
           await api(cfg, 'activity', {
             kind: 'edit',
             tool: 'watch',
-            summary: exists ? `Ha modificat ${rel}` : `Ha esborrat ${rel}`,
+            summary: exists ? `Changed ${rel}` : `Deleted ${rel}`,
             files: [rel],
             checkClaims: true,
           });

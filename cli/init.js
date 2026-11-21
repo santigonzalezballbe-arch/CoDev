@@ -1,4 +1,4 @@
-// "codev init": connecta el projecte actual a una sala i instal·la els hooks i el MCP a Claude Code.
+// "codev init": connects the current project to a room and installs the hooks and the MCP server in Claude Code.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -31,7 +31,7 @@ export function installHooks(root) {
   settings.hooks ||= {};
   const command = `node "${CLI_PATH}" hook`;
   for (const [event, matcher] of Object.entries(HOOK_EVENTS)) {
-    // Treu instal·lacions anteriors de CoDev i deixa intactes els hooks propis de l'usuari.
+    // Remove earlier CoDev installs and leave the user's own hooks untouched.
     const groups = (settings.hooks[event] || [])
       .map((g) => ({ ...g, hooks: (g.hooks || []).filter((h) => !isCodevHook(h)) }))
       .filter((g) => g.hooks.length);
@@ -52,27 +52,31 @@ function addToGitignore(root, entries) {
   if (missing.length) fs.appendFileSync(file, (current && !current.endsWith('\n') ? '\n' : '') + missing.join('\n') + '\n');
 }
 
-function installMcp(root) {
+function installMcp(root, env = process.env) {
   try {
-    execFileSync('claude', ['mcp', 'remove', '--scope', 'local', 'codev'], { cwd: root, stdio: 'ignore' });
+    execFileSync('claude', ['mcp', 'remove', '--scope', 'local', 'codev'], { cwd: root, stdio: 'ignore', env });
   } catch {}
   try {
-    execFileSync('claude', ['mcp', 'add', '--scope', 'local', 'codev', '--', 'node', CLI_PATH, 'mcp'], { cwd: root, stdio: 'ignore' });
+    execFileSync('claude', ['mcp', 'add', '--scope', 'local', 'codev', '--', 'node', CLI_PATH, 'mcp'], { cwd: root, stdio: 'ignore', env });
     return true;
   } catch {
     return false;
   }
 }
 
-/** Prepara un projecte per a CoDev. La fan servir tant `codev init` com l'app d'escriptori. */
-export async function setupProject({ root, server, room, name }) {
-  fs.writeFileSync(path.join(root, CONFIG_FILE), JSON.stringify({ server, room, name }, null, 2) + '\n');
+/** Prepares a project for CoDev. Used by both `codev init` and the desktop app. */
+export async function setupProject({ root, server, room, name, key = null, env }) {
+  // .codev.json is git-ignored, so the room key never ends up in the repository.
+  fs.writeFileSync(path.join(root, CONFIG_FILE), JSON.stringify({ server, room, name, ...(key && { key }) }, null, 2) + '\n');
   addToGitignore(root, [CONFIG_FILE, '.claude/settings.local.json']);
   const hooksFile = installHooks(root);
-  const mcpOk = installMcp(root);
+  const mcpOk = installMcp(root, env);
   let reachable = false;
   try {
-    const res = await fetch(`${server}/api/rooms/${encodeURIComponent(room)}/state`, { signal: AbortSignal.timeout(2500) });
+    const res = await fetch(`${server}/api/rooms/${encodeURIComponent(room)}/state`, {
+      signal: AbortSignal.timeout(2500),
+      headers: key ? { 'x-codev-key': key } : {},
+    });
     reachable = res.ok;
   } catch {}
   return { hooksFile, mcpOk, reachable };
@@ -83,21 +87,22 @@ export async function runInit(args) {
   const server = (args.server || 'http://localhost:4321').replace(/\/$/, '');
   const room = args.room;
   const name = args.name;
+  const key = typeof args.key === 'string' ? args.key : null;
   if (!room || !name) {
-    console.error('Ús: codev init --room <sala> --name <el-teu-nom> [--server http://host:4321]');
+    console.error('Usage: codev init --room <room> --name <your-name> [--server http://host:4321] [--key <room-key>]');
     process.exit(1);
   }
 
-  const { hooksFile, mcpOk, reachable } = await setupProject({ root, server, room, name });
+  const { hooksFile, mcpOk, reachable } = await setupProject({ root, server, room, name, key });
 
-  console.log(`✔ ${CONFIG_FILE} creat (sala "${room}", nom "${name}")`);
-  console.log(`✔ Hooks de Claude Code a ${path.relative(root, hooksFile)}`);
+  console.log(`✔ Created ${CONFIG_FILE} (room "${room}", name "${name}")`);
+  console.log(`✔ Claude Code hooks in ${path.relative(root, hooksFile)}`);
   console.log(
     mcpOk
-      ? '✔ Servidor MCP "codev" afegit a Claude Code (àmbit local)'
-      : `⚠ No s'ha pogut afegir el MCP. Fes-ho a mà:\n   claude mcp add --scope local codev -- node "${CLI_PATH}" mcp`
+      ? '✔ MCP server "codev" added to Claude Code (local scope)'
+      : `⚠ Could not add the MCP server. Add it by hand:\n   claude mcp add --scope local codev -- node "${CLI_PATH}" mcp`
   );
-  console.log(reachable ? `✔ Servidor accessible a ${server}` : `⚠ No arribo a ${server}. Arrenca'l amb \`codev server\`.`);
-  console.log(`\nObre la pantalla partida: ${server}/?room=${encodeURIComponent(room)}&name=${encodeURIComponent(name)}`);
-  console.log('Després obre Claude Code en aquest projecte (si ja era obert, reinicia\'l).');
+  console.log(reachable ? `✔ Server reachable at ${server}` : `⚠ Cannot reach ${server}. Start it with \`codev server\`.`);
+  console.log(`\nOpen the split screen: ${server}/?room=${encodeURIComponent(room)}&name=${encodeURIComponent(name)}`);
+  console.log('Then open Claude Code in this project (restart it if it was already open).');
 }

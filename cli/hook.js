@@ -1,5 +1,5 @@
-// Gestor dels hooks de Claude Code. Rep el JSON de l'esdeveniment per stdin.
-// Regla d'or: si CoDev falla (servidor caigut, etc.) mai no ha de bloquejar la sessió de l'usuari.
+// Claude Code hook handler. Receives the event JSON on stdin.
+// Golden rule: if CoDev fails (server down, etc.) it must never block the user's session.
 import { findConfig, toProjectPath, api, teamSummary } from './config.js';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -20,7 +20,7 @@ function editedFile(cfg, input) {
   return toProjectPath(cfg, ti.file_path || ti.notebook_path, input.cwd || cfg.root);
 }
 
-/** Tradueix una crida d'eina a una entrada d'activitat llegible. */
+/** Turns a tool call into a readable activity entry. */
 export function describeTool(cfg, input) {
   const tool = input.tool_name;
   const ti = input.tool_input || {};
@@ -28,44 +28,44 @@ export function describeTool(cfg, input) {
   const rel = (p) => toProjectPath(cfg, p, cwd) || p;
   switch (tool) {
     case 'Edit':
-      return { kind: 'edit', summary: `Ha editat ${rel(ti.file_path)}`, files: [rel(ti.file_path)], diff: { old: ti.old_string, new: ti.new_string } };
+      return { kind: 'edit', summary: `Edited ${rel(ti.file_path)}`, files: [rel(ti.file_path)], diff: { old: ti.old_string, new: ti.new_string } };
     case 'MultiEdit': {
       const edits = ti.edits || [];
       return {
         kind: 'edit',
-        summary: `Ha fet ${edits.length} edicions a ${rel(ti.file_path)}`,
+        summary: `Made ${edits.length} edits to ${rel(ti.file_path)}`,
         files: [rel(ti.file_path)],
         diff: { old: edits.map((e) => e.old_string).join('\n⋯\n'), new: edits.map((e) => e.new_string).join('\n⋯\n') },
       };
     }
     case 'Write': {
       const lines = (ti.content || '').split('\n').length;
-      return { kind: 'edit', summary: `Ha escrit ${rel(ti.file_path)} (${lines} línies)`, files: [rel(ti.file_path)], diff: { old: '', new: ti.content } };
+      return { kind: 'edit', summary: `Wrote ${rel(ti.file_path)} (${lines} lines)`, files: [rel(ti.file_path)], diff: { old: '', new: ti.content } };
     }
     case 'NotebookEdit':
-      return { kind: 'edit', summary: `Ha editat el notebook ${rel(ti.notebook_path)}`, files: [rel(ti.notebook_path)] };
+      return { kind: 'edit', summary: `Edited notebook ${rel(ti.notebook_path)}`, files: [rel(ti.notebook_path)] };
     case 'Bash':
       return { kind: 'command', summary: ti.description ? `${ti.description}: $ ${clip(ti.command, 200)}` : `$ ${clip(ti.command, 240)}` };
     case 'Read':
-      return { kind: 'read', summary: `Ha llegit ${rel(ti.file_path)}`, files: [rel(ti.file_path)] };
+      return { kind: 'read', summary: `Read ${rel(ti.file_path)}`, files: [rel(ti.file_path)] };
     case 'Grep':
-      return { kind: 'read', summary: `Ha cercat "${clip(ti.pattern, 80)}"${ti.path ? ` a ${rel(ti.path)}` : ''}` };
+      return { kind: 'read', summary: `Searched for "${clip(ti.pattern, 80)}"${ti.path ? ` in ${rel(ti.path)}` : ''}` };
     case 'Glob':
-      return { kind: 'read', summary: `Ha buscat fitxers ${clip(ti.pattern, 80)}` };
+      return { kind: 'read', summary: `Looked for files ${clip(ti.pattern, 80)}` };
     case 'WebFetch':
     case 'WebSearch':
-      return { kind: 'web', summary: `Ha consultat ${clip(ti.url || ti.query, 120)}` };
+      return { kind: 'web', summary: `Looked up ${clip(ti.url || ti.query, 120)}` };
     case 'Task':
     case 'Agent':
-      return { kind: 'agent', summary: `Ha llançat un subagent: ${clip(ti.description || ti.prompt, 120)}` };
+      return { kind: 'agent', summary: `Started a subagent: ${clip(ti.description || ti.prompt, 120)}` };
     case 'TodoWrite': {
       const todos = ti.todos || [];
       const current = todos.find((t) => t.status === 'in_progress');
-      return { kind: 'plan', summary: `Pla (${todos.filter((t) => t.status === 'completed').length}/${todos.length})${current ? `: ara → ${current.content}` : ''}` };
+      return { kind: 'plan', summary: `Plan (${todos.filter((t) => t.status === 'completed').length}/${todos.length})${current ? `: now → ${current.content}` : ''}` };
     }
     default:
-      if (tool?.startsWith('mcp__codev__')) return null; // les eines de CoDev ja deixen rastre pròpi
-      return { kind: 'tool', summary: `Ha fet servir ${tool}` };
+      if (tool?.startsWith('mcp__codev__')) return null; // CoDev's own tools already leave their own trace
+      return { kind: 'tool', summary: `Used ${tool}` };
   }
 }
 
@@ -90,7 +90,7 @@ export async function runHook() {
         if (input.hook_event_name === 'UserPromptSubmit' && input.prompt) {
           await api(cfg, 'intent', { text: clip(input.prompt.trim(), 500) });
         } else {
-          await api(cfg, 'status', { status: 'idle', summary: 'Ha obert una sessió' });
+          await api(cfg, 'status', { status: 'idle', summary: 'Opened a session' });
         }
         const state = await api(cfg, 'state');
         const context = teamSummary(cfg, state);
@@ -110,14 +110,14 @@ export async function runHook() {
               hookEventName: 'PreToolUse',
               permissionDecision: 'deny',
               permissionDecisionReason:
-                `CoDev: ${c.file} ara mateix el modifica la IA de ${c.owner}` +
-                (c.intent ? ` (tasca: "${clip(c.intent, 160)}")` : '') +
-                `. No l'editis. Tria un altre enfocament, treballa en un altre fitxer o coordina't amb ${c.owner} amb l'eina codev_send_note. ` +
-                `Explica-ho a l'usuari.`,
+                `CoDev: ${c.file} is being changed right now by ${c.owner}'s AI` +
+                (c.intent ? ` (task: "${clip(c.intent, 160)}")` : '') +
+                `. Do not edit it. Take another approach, work in another file, or coordinate with ${c.owner} using the codev_send_note tool. ` +
+                `Explain this to the user.`,
             },
           });
         }
-        // Sense conflicte no escrivim res: així els permisos normals de Claude Code continuen aplicant-se.
+        // No conflict: print nothing, so Claude Code's normal permission checks still apply.
         return;
       }
 
@@ -128,15 +128,15 @@ export async function runHook() {
       }
 
       case 'Stop':
-        await api(cfg, 'status', { status: 'idle', summary: 'Ha acabat el torn' });
+        await api(cfg, 'status', { status: 'idle', summary: 'Finished its turn' });
         return;
 
       case 'SessionEnd':
         await api(cfg, 'release', {});
-        await api(cfg, 'status', { status: 'offline', summary: 'Ha tancat la sessió i ha alliberat els seus fitxers' });
+        await api(cfg, 'status', { status: 'offline', summary: 'Closed the session and released its files' });
         return;
     }
   } catch {
-    // Falla oberta: CoDev no pot trencar la feina de ningú.
+    // Fail open: CoDev must never break anyone's work.
   }
 }

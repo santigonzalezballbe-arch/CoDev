@@ -1,64 +1,120 @@
 <!doctype html>
-<html lang="ca">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src http: https: ws: wss:" />
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; frame-src codev:; connect-src http: https: ws: wss:" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='16' height='32' fill='%230a0a0a'/%3E%3Crect x='16' width='16' height='32' fill='%23fff'/%3E%3C/svg%3E" />
   <title>CoDev</title>
   <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Pantalla d'inici -->
-  <main id="start" class="start">
-    <form id="start-form" class="start-card">
-      <div class="brand big"><span class="logo"><i></i><i></i></span>CoDev</div>
-      <p class="tagline">Les vostres terminals de Claude Code, una al costat de l'altra. Cap IA trepitjarà la feina d'una altra.</p>
-
-      <label>Carpeta del projecte
-        <div class="row">
-          <input name="project" required readonly placeholder="Tria una carpeta…" />
-          <button type="button" id="pick">Tria…</button>
-        </div>
-      </label>
-      <div class="row two">
-        <label>El teu nom <input name="name" required placeholder="Santi" autocomplete="off" /></label>
-        <label>Sala <input name="room" required placeholder="el-meu-projecte" autocomplete="off" /></label>
+  <!-- Start screen: itself a split screen. Left = you, right = the room. -->
+  <form id="start-form" class="start" autocomplete="off" novalidate>
+    <section class="half you">
+      <div class="top">
+        <span class="wordmark">CoDev</span>
       </div>
+      <h1 class="big" id="big-you"><span class="mask"><span class="line">You</span></span></h1>
+      <div class="fields">
+        <label class="field">
+          <span class="label">Your name</span>
+          <input name="name" required placeholder="What should we call you?" spellcheck="false" />
+        </label>
 
-      <fieldset class="mode">
-        <label class="radio"><input type="radio" name="mode" value="host" checked />
-          <span><strong>Crear la sala</strong><small>Aquest ordinador fa de servidor. Els companys s'hi connecten.</small></span></label>
-        <label class="radio"><input type="radio" name="mode" value="join" />
-          <span><strong>Unir-me a una sala</strong><small>Un company ja l'ha creada.</small></span></label>
-      </fieldset>
-      <label id="server-field" hidden>Adreça del servidor
-        <input name="server" placeholder="http://192.168.1.20:4321" autocomplete="off" />
-      </label>
+        <div class="field app-only">
+          <span class="label">Where you will work</span>
+          <div class="switch" role="radiogroup" aria-label="Project source">
+            <button type="button" class="opt" data-src="github" role="radio">GitHub repository</button>
+            <button type="button" class="opt" data-src="folder" role="radio">Local folder</button>
+          </div>
+        </div>
 
-      <p id="start-error" class="error" hidden></p>
-      <button type="submit" class="primary" id="enter">Entra</button>
-    </form>
-  </main>
+        <div id="src-github" class="field app-only">
+          <span class="label">Repository</span>
+          <input name="repo" list="repo-list" placeholder="owner/repository or URL" spellcheck="false" />
+          <datalist id="repo-list"></datalist>
+          <p class="hint" id="repo-hint"></p>
+        </div>
 
-  <!-- Espai de treball -->
+        <div id="src-folder" class="field app-only" hidden>
+          <span class="label">Folder</span>
+          <div class="pick">
+            <input name="project" readonly placeholder="No folder chosen" />
+            <button type="button" id="pick" class="small">Choose</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="half sala">
+      <div class="top">
+        <div class="modes app-only" role="radiogroup" aria-label="Mode">
+          <button type="button" class="mode" data-mode="host" role="radio">Create a room</button>
+          <button type="button" class="mode" data-mode="join" role="radio">Join a room</button>
+        </div>
+        <a class="about" href="https://github.com/santigonzalezballbe-arch/CoDev" target="_blank">How it works</a>
+      </div>
+      <h2 class="big" id="big-room"><span class="mask"><span class="line">Room</span></span></h2>
+      <div class="fields">
+        <label class="field">
+          <span class="label">Room name</span>
+          <input name="room" required placeholder="our-project" spellcheck="false" />
+        </label>
+        <div class="field app-only" id="reach-field">
+          <span class="label">Who can join</span>
+          <div class="switch" role="radiogroup" aria-label="Who can join">
+            <button type="button" class="opt" data-reach="lan" role="radio">Same network</button>
+            <button type="button" class="opt" data-reach="internet" role="radio">Anyone with the invite</button>
+          </div>
+        </div>
+        <label class="field app-only" id="server-field" hidden>
+          <span class="label">Invite link</span>
+          <input name="server" placeholder="Paste the invite your teammate sent you" spellcheck="false" />
+        </label>
+        <label class="field" id="key-field" hidden>
+          <span class="label">Room key</span>
+          <input name="key" placeholder="Comes inside the invite" spellcheck="false" />
+        </label>
+        <p class="lead" id="room-lead"></p>
+        <div class="app-links web-only">
+          <a class="open-app" id="open-app" href="#">Open in the CoDev app</a>
+          <a class="get-app" href="https://github.com/santigonzalezballbe-arch/CoDev#desktop-app-recommended" target="_blank">Get the CoDev app</a>
+        </div>
+      </div>
+      <div class="go">
+        <p id="start-error" class="error" role="alert" hidden></p>
+        <button type="submit" class="enter" id="enter">Enter the room</button>
+      </div>
+    </section>
+  </form>
+
+  <!-- Workspace -->
   <div id="app" class="app" hidden>
     <header class="topbar">
-      <div class="brand"><span class="logo"><i></i><i></i></span>CoDev</div>
+      <span class="wordmark">CoDev</span>
       <div class="room">
-        <span class="room-label">sala</span>
+        <span class="room-word">Room</span>
         <strong id="room-name"></strong>
-        <button id="invite" class="ghost">Convida</button>
       </div>
-      <button id="add-claude" class="ghost" title="Obre una altra sessió de Claude Code teva">+ Claude Code</button>
+      <button id="invite" class="bar-btn quiet">Invite</button>
+      <button id="share" class="bar-btn quiet" hidden></button>
+      <button id="add-claude" class="bar-btn" title="Open another Claude Code session of your own">Another Claude</button>
+      <a id="get-app" class="bar-btn quiet web-only" href="https://github.com/santigonzalezballbe-arch/CoDev#desktop-app-recommended" target="_blank">Get the app</a>
       <form id="note-form" class="note-form">
-        <select id="note-to" aria-label="Destinatari"></select>
-        <input id="note-text" placeholder="Nota a l'equip…" autocomplete="off" />
-        <button type="submit">Envia</button>
+        <select id="note-to" aria-label="Recipient"></select>
+        <input id="note-text" placeholder="Note to the team" autocomplete="off" />
+        <button type="submit" class="bar-btn">Send</button>
       </form>
-      <span id="conn" class="conn" title="Connexió amb el servidor"></span>
+      <span id="conn" class="conn">Offline</span>
     </header>
     <div id="alert" class="alert" hidden></div>
+    <div id="request" class="request" hidden>
+      <p id="request-text"></p>
+      <button id="request-allow" class="bar-btn">Allow</button>
+      <button id="request-deny" class="bar-btn quiet">Deny</button>
+    </div>
     <section id="panes" class="panes"></section>
   </div>
 

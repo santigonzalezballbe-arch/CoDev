@@ -1,6 +1,6 @@
-// Estat en memòria de les sales de CoDev: membres, fitxers reclamats i activitat.
+// In-memory state of CoDev rooms: members, claimed files and activity.
 
-export const CLAIM_TTL_MS = 20 * 60 * 1000; // una reclamació caduca després de 20 min sense tocar el fitxer
+export const CLAIM_TTL_MS = 20 * 60 * 1000; // a claim expires after 20 min without touching the file
 const MAX_EVENTS = 400;
 const PALETTE = ['#7c9cff', '#ff8a65', '#4dd0a1', '#e57bd8', '#ffd166', '#5ec8f2', '#b39ddb', '#f28482'];
 
@@ -13,11 +13,12 @@ function colorFor(name) {
 export class Room {
   constructor(id) {
     this.id = id;
-    this.members = new Map(); // nom -> membre
-    this.claims = new Map(); // fitxer relatiu -> { file, owner, intent, since, touched }
+    this.members = new Map(); // name -> member
+    this.claims = new Map(); // relative file -> { file, owner, intent, since, touched }
     this.events = [];
-    this.subscribers = new Set(); // respostes SSE obertes
+    this.subscribers = new Set(); // open SSE responses
     this.seq = 0;
+    this.meta = {}; // { repo: 'owner/repository' }
   }
 
   member(name) {
@@ -55,7 +56,7 @@ export class Room {
     return [...this.claims.values()];
   }
 
-  /** Intenta reclamar fitxers. Retorna els reclamats i els que ja són d'algú altre. */
+  /** Tries to claim files. Returns the ones claimed and the ones that already belong to someone else. */
   claim(name, files, intent) {
     this.pruneClaims();
     const m = this.member(name);
@@ -80,7 +81,7 @@ export class Room {
     for (const c of conflicts) {
       this.addEvent(name, {
         kind: 'conflict',
-        summary: `Ha intentat tocar ${c.file}, però està reclamat per ${c.owner}`,
+        summary: `Tried to touch ${c.file}, but it is claimed by ${c.owner}`,
         files: [c.file],
         owner: c.owner,
       });
@@ -89,7 +90,7 @@ export class Room {
     return { claimed, conflicts };
   }
 
-  /** Comprova (sense reclamar) si algun fitxer és d'una altra persona. */
+  /** Checks (without claiming) whether any file belongs to someone else. */
   checkFiles(name, files) {
     this.pruneClaims();
     return files.map((f) => this.claims.get(f)).filter((c) => c && c.owner !== name);
@@ -123,6 +124,7 @@ export class Room {
   snapshot() {
     return {
       room: this.id,
+      meta: this.meta,
       now: Date.now(),
       members: [...this.members.values()],
       claims: this.claimList(),
@@ -130,9 +132,18 @@ export class Room {
     };
   }
 
+  /**
+   * Sends a room event to every viewer: over Server-Sent Events (web view, local use) and over the
+   * terminal WebSockets. The desktop app relies on the WebSocket, because proxies such as the
+   * Cloudflare tunnel behind "Share online" can hold back an SSE stream but pass WebSockets through.
+   */
   broadcast(type, data) {
     const payload = `data: ${JSON.stringify({ type, data })}\n\n`;
     for (const res of this.subscribers) res.write(payload);
+    if (this.sockets?.size) {
+      const msg = JSON.stringify({ t: 'room', type, data });
+      for (const ws of this.sockets) if (ws.readyState === 1) ws.send(msg);
+    }
   }
 }
 

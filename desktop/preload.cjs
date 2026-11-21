@@ -1,9 +1,23 @@
-// Pont segur entre la interfície i el procés principal.
+// Safe bridge between the UI and the main process.
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('codev', {
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
   hostServer: (port) => ipcRenderer.invoke('host-server', port),
+  shareStart: () => ipcRenderer.invoke('share-start'),
+  shareStop: () => ipcRenderer.invoke('share-stop'),
+  onDeepLink: (cb) => ipcRenderer.on('deep-link', (_e, link) => cb(link)),
+  pendingLink: () => ipcRenderer.invoke('pending-link'),
+  setHostContext: (ctx) => ipcRenderer.invoke('host-context', ctx),
+  onGuestRequest: (cb) => ipcRenderer.on('guest-request', (_e, req) => cb(req)),
+  onGuestRequestExpired: (cb) => ipcRenderer.on('guest-request-expired', (_e, reqId) => cb(reqId)),
+  guestDecision: (reqId, allow) => ipcRenderer.invoke('guest-decision', reqId, allow),
+  onGuests: (cb) => ipcRenderer.on('guests', (_e, ids) => cb(ids)),
+  guestStop: (id) => ipcRenderer.invoke('guest-stop', id),
+  onShareProgress: (cb) => ipcRenderer.on('share-progress', (_e, p) => cb(p)),
+  ghRepos: () => ipcRenderer.invoke('gh-repos'),
+  repoStatus: (input) => ipcRenderer.invoke('repo-status', input),
+  prepareRepo: (input) => ipcRenderer.invoke('prepare-repo', input),
   setupProject: (opts) => ipcRenderer.invoke('setup-project', opts),
   copy: (text) => ipcRenderer.invoke('copy', text),
   ptyCreate: (opts) => ipcRenderer.invoke('pty-create', opts),

@@ -1,74 +1,74 @@
-// Servidor MCP mínim (JSON-RPC per stdio) perquè la IA pugui consultar l'equip i coordinar-se.
+// Minimal MCP server (JSON-RPC over stdio) so the AI can see the team and coordinate.
 import readline from 'node:readline';
 import { findConfig, toProjectPath, api, teamSummary } from './config.js';
 
 const TOOLS = [
   {
     name: 'codev_team_status',
-    description: "Mostra què fan ara les IA dels teus companys: tasca actual, fitxers reclamats i activitat recent. Consulta-ho abans de començar una tasca gran.",
+    description: "Shows what your teammates' AIs are doing right now: current task, claimed files and recent activity. Check it before starting a large task.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'codev_claim_files',
-    description: "Reclama fitxers abans de treballar-hi perquè cap company els toqui. Retorna els que ja són d'algú altre.",
+    description: "Claims files before you work on them so no teammate touches them. Returns the ones that already belong to someone else.",
     inputSchema: {
       type: 'object',
       properties: {
-        files: { type: 'array', items: { type: 'string' }, description: 'Rutes dels fitxers (relatives al projecte o absolutes)' },
-        intent: { type: 'string', description: 'Què hi faràs, en una frase' },
+        files: { type: 'array', items: { type: 'string' }, description: 'File paths (relative to the project, or absolute)' },
+        intent: { type: 'string', description: 'What you will do there, in one sentence' },
       },
       required: ['files'],
     },
   },
   {
     name: 'codev_release_files',
-    description: 'Allibera fitxers que ja no necessites (o tots, si no en passes cap) perquè els companys hi puguin treballar.',
+    description: 'Releases files you no longer need (or all of them, if you pass none) so teammates can work on them.',
     inputSchema: { type: 'object', properties: { files: { type: 'array', items: { type: 'string' } } } },
   },
   {
     name: 'codev_send_note',
-    description: "Envia una nota a un company (o a tot l'equip) que la veurà a la pantalla i la rebrà la seva IA. Útil per demanar un fitxer o avisar d'un canvi d'interfície.",
+    description: "Sends a note to a teammate (or the whole team): they see it on screen and their AI receives it. Useful to ask for a file or to announce an interface change.",
     inputSchema: {
       type: 'object',
       properties: {
         text: { type: 'string' },
-        to: { type: 'string', description: "Nom del company. Buit = tot l'equip" },
+        to: { type: 'string', description: "Teammate's name. Empty = the whole team" },
       },
       required: ['text'],
     },
   },
   {
     name: 'codev_set_intent',
-    description: "Anuncia a l'equip el pla o la tasca en què treballes ara.",
+    description: "Tells the team the plan or task you are working on now.",
     inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
   },
 ];
 
 async function callTool(cfg, name, args = {}) {
-  if (!cfg) return 'CoDev no està configurat en aquest projecte. Executa `codev init` a l\'arrel del projecte.';
+  if (!cfg) return 'CoDev is not set up in this project. Run `codev init` at the project root.';
   const files = (args.files || []).map((f) => toProjectPath(cfg, f) || f);
   switch (name) {
     case 'codev_team_status': {
       const state = await api(cfg, 'state');
-      return teamSummary(cfg, state, { maxEvents: 12 }) || 'Ara mateix no hi ha cap company a la sala.';
+      return teamSummary(cfg, state, { maxEvents: 12 }) || 'There are no teammates in the room right now.';
     }
     case 'codev_claim_files': {
       const { claimed, conflicts } = await api(cfg, 'claim', { files, intent: args.intent });
-      let text = claimed.length ? `Reclamats: ${claimed.join(', ')}.` : 'No s\'ha reclamat cap fitxer.';
-      for (const c of conflicts) text += `\nOCUPAT: ${c.file} és de ${c.owner}${c.intent ? ` (${c.intent})` : ''}. No el modifiquis.`;
+      let text = claimed.length ? `Claimed: ${claimed.join(', ')}.` : 'No files were claimed.';
+      for (const c of conflicts) text += `\nTAKEN: ${c.file} belongs to ${c.owner}${c.intent ? ` (${c.intent})` : ''}. Do not modify it.`;
       return text;
     }
     case 'codev_release_files':
       await api(cfg, 'release', args.files?.length ? { files } : {});
-      return args.files?.length ? `Alliberats: ${files.join(', ')}` : 'Tots els teus fitxers s\'han alliberat.';
+      return args.files?.length ? `Released: ${files.join(', ')}` : 'All your files have been released.';
     case 'codev_send_note':
       await api(cfg, 'note', { text: args.text, to: args.to || null, from: 'ai' });
-      return `Nota enviada${args.to ? ` a ${args.to}` : " a l'equip"}.`;
+      return `Note sent${args.to ? ` to ${args.to}` : ' to the team'}.`;
     case 'codev_set_intent':
       await api(cfg, 'intent', { text: args.text });
-      return 'Tasca anunciada a l\'equip.';
+      return 'Task announced to the team.';
     default:
-      throw Object.assign(new Error(`Eina desconeguda: ${name}`), { code: -32602 });
+      throw Object.assign(new Error(`Unknown tool: ${name}`), { code: -32602 });
   }
 }
 
@@ -84,7 +84,7 @@ export function runMcp() {
     } catch {
       return;
     }
-    if (msg.id === undefined || msg.id === null) return; // notificacions: no responem
+    if (msg.id === undefined || msg.id === null) return; // notifications: no reply
 
     try {
       let result;
@@ -108,11 +108,11 @@ export function runMcp() {
             result = { content: [{ type: 'text', text }] };
           } catch (err) {
             if (err.code) throw err;
-            result = { content: [{ type: 'text', text: `Error de CoDev: ${err.message}` }], isError: true };
+            result = { content: [{ type: 'text', text: `CoDev error: ${err.message}` }], isError: true };
           }
           break;
         default:
-          throw Object.assign(new Error(`Mètode no suportat: ${msg.method}`), { code: -32601 });
+          throw Object.assign(new Error(`Unsupported method: ${msg.method}`), { code: -32601 });
       }
       send({ jsonrpc: '2.0', id: msg.id, result });
     } catch (err) {
