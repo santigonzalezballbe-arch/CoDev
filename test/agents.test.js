@@ -27,9 +27,13 @@ test('DeepSeek runs inside Claude Code against its Anthropic API, and needs a ke
   assert.throws(() => spawnSpec('deepseek', {}), /API key/);
   const s = spawnSpec('deepseek', { key: 'sk-1', model: 'deepseek-reasoner' });
   assert.equal(s.command, 'claude');
+  assert.deepEqual(s.args, ['--permission-mode', 'auto'], 'it works agentically, with Claude Code\'s safeguards');
   assert.equal(s.env.ANTHROPIC_BASE_URL, 'https://api.deepseek.com/anthropic');
   assert.equal(s.env.ANTHROPIC_AUTH_TOKEN, 'sk-1');
   assert.equal(s.env.ANTHROPIC_MODEL, 'deepseek-reasoner');
+  assert.equal(s.env.ENABLE_TOOL_SEARCH, 'false', "DeepSeek's endpoint rejects Claude Code's tool search");
+  assert.equal(s.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '128000', 'Claude Code must not assume its 1M window');
+  assert.equal(s.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, '120000');
   assert.ok(s.unset.includes('ANTHROPIC_API_KEY'), 'an inherited Anthropic key must not take over');
   assert.equal(spawnSpec('deepseek', { key: 'x', model: 'made-up' }).env.ANTHROPIC_MODEL, 'deepseek-chat');
 });
@@ -40,6 +44,7 @@ test('a local model runs inside Claude Code against Ollama', () => {
   assert.equal(s.command, 'claude');
   assert.equal(s.env.ANTHROPIC_BASE_URL, 'http://localhost:11434');
   assert.equal(s.env.ANTHROPIC_MODEL, 'qwen3:14b');
+  assert.equal(s.env.ENABLE_TOOL_SEARCH, 'false', "Ollama's endpoint does not implement tool search");
 });
 
 test('ChatGPT runs in Codex with the CoDev MCP server and rules passed at launch', () => {
