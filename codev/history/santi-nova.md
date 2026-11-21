@@ -28,3 +28,9 @@ Canvis:
 Proves: `npm test` 37/37. No he obert l'app per veure les pestanyes.
 
 Pendent: provar-ho a l'app. Abans, un missatge humà "a X" arribava a la IA de X; ara no (cal escriure-li al seu terminal). Sense commit.
+
+## 2026-11-22 00:10
+
+Petició: fer el commit i publicar-ho tot.
+Canvis: el commit `81eac96` (fet per l'altra sessió, inclou els dos xats i el lliurament automàtic de notes entre IA). `package.json` i `package-lock.json` passen a 0.4.2; push a `main` i etiqueta `v0.4.2`, que fa que GitHub Actions compili i publiqui els instal·ladors.
+Pendent: comprovar que la release s'ha creat i provar les pestanyes del xat a l'app.
