@@ -25,17 +25,18 @@ test('Claude runs as it is', () => {
 
 test('DeepSeek runs inside Claude Code against its Anthropic API, and needs a key', () => {
   assert.throws(() => spawnSpec('deepseek', {}), /API key/);
-  const s = spawnSpec('deepseek', { key: 'sk-1', model: 'deepseek-reasoner' });
+  const s = spawnSpec('deepseek', { key: 'sk-1', model: 'deepseek-v4-pro' });
   assert.equal(s.command, 'claude');
   assert.deepEqual(s.args, ['--permission-mode', 'auto'], 'it works agentically, with Claude Code\'s safeguards');
   assert.equal(s.env.ANTHROPIC_BASE_URL, 'https://api.deepseek.com/anthropic');
   assert.equal(s.env.ANTHROPIC_AUTH_TOKEN, 'sk-1');
-  assert.equal(s.env.ANTHROPIC_MODEL, 'deepseek-reasoner');
+  assert.equal(s.env.ANTHROPIC_MODEL, 'deepseek-v4-pro');
   assert.equal(s.env.ENABLE_TOOL_SEARCH, 'false', "DeepSeek's endpoint rejects Claude Code's tool search");
-  assert.equal(s.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '128000', 'Claude Code must not assume its 1M window');
-  assert.equal(s.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, '120000');
+  assert.equal(s.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '1000000', 'DeepSeek V4 has a 1M window');
+  assert.equal(s.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, '786432');
+  assert.equal(s.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'deepseek-flash', 'subagents and small tasks stay on DeepSeek');
   assert.ok(s.unset.includes('ANTHROPIC_API_KEY'), 'an inherited Anthropic key must not take over');
-  assert.equal(spawnSpec('deepseek', { key: 'x', model: 'made-up' }).env.ANTHROPIC_MODEL, 'deepseek-chat');
+  assert.equal(spawnSpec('deepseek', { key: 'x', model: 'made-up' }).env.ANTHROPIC_MODEL, 'deepseek-flash[1m]');
 });
 
 test('a local model runs inside Claude Code against Ollama', () => {

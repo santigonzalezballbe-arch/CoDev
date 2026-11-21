@@ -20,8 +20,8 @@ export const AGENTS = {
     install: 'npm i -g @anthropic-ai/claude-code',
     needsKey: true,
     keyUrl: 'https://platform.deepseek.com/api_keys',
-    models: ['deepseek-chat', 'deepseek-reasoner'],
-    defaultModel: 'deepseek-chat',
+    models: ['deepseek-flash[1m]', 'deepseek-v4-pro'],
+    defaultModel: 'deepseek-flash[1m]',
   },
   local: {
     id: 'local',
@@ -62,7 +62,12 @@ const toml = (v) => JSON.stringify(v); // a JSON string is a valid TOML basic st
 export function spawnSpec(agentId, { model, key, codev = {}, runner, rules = '' } = {}) {
   const agent = AGENTS[agentId] || AGENTS.claude;
   // Claude Code with another endpoint: an inherited ANTHROPIC_API_KEY would take over, so drop it.
-  const unset = ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL'];
+  const unset = [
+    'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+    'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
+    'CLAUDE_CODE_AUTO_COMPACT_WINDOW', 'CLAUDE_CODE_DISABLE_1M_CONTEXT', 'ENABLE_TOOL_SEARCH',
+  ];
   switch (agent.id) {
     case 'deepseek': {
       if (!key) throw new Error('DeepSeek needs an API key.');
@@ -74,19 +79,22 @@ export function spawnSpec(agentId, { model, key, codev = {}, runner, rules = '' 
         // "auto" lets it work agentically (edits and safe commands) with Claude Code's own safeguards.
         args: ['--permission-mode', 'auto'],
         unset,
+        // The official DeepSeek integration for Claude Code (api-docs.deepseek.com):
+        // deepseek-flash[1m] has a 1M window, so compact at 768K and let subagents use the cheap model.
         env: {
           ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
           ANTHROPIC_AUTH_TOKEN: key,
           ANTHROPIC_MODEL: m,
-          ANTHROPIC_SMALL_FAST_MODEL: 'deepseek-chat',
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-flash[1m]',
+          ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-flash[1m]',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-flash',
+          CLAUDE_CODE_SUBAGENT_MODEL: 'deepseek-flash',
+          CLAUDE_CODE_EFFORT_LEVEL: 'max',
+          CLAUDE_CODE_MAX_CONTEXT_TOKENS: '1000000',
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW: '786432',
           API_TIMEOUT_MS: '600000',
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
           ENABLE_TOOL_SEARCH: 'false',
-          // Claude Code assumes 1M tokens for a model it does not know; DeepSeek's window is 128K.
-          // Telling it the real window makes it compact in time instead of failing with "prompt is too long".
-          CLAUDE_CODE_MAX_CONTEXT_TOKENS: '128000',
-          CLAUDE_CODE_AUTO_COMPACT_WINDOW: '120000',
-          CLAUDE_CODE_DISABLE_1M_CONTEXT: '1',
         },
       };
     }

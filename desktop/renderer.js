@@ -356,7 +356,7 @@ function renderStartAI() {
         : models.length
           ? `${models.length} models installed in Ollama.`
           : 'No models installed. Pull one with ollama pull qwen2.5-coder:7b.'
-      : 'deepseek-chat is the fast one and the one that calls tools reliably; deepseek-reasoner thinks longer but may not call tools.';
+      : 'deepseek-flash[1m] is the fast one and has a 1M context; deepseek-v4-pro is stronger and costs more.';
   } else {
     ui.model = '';
   }
