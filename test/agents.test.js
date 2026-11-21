@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSpec, AGENTS, AGENT_IDS, agentLabel } from '../desktop/agents.js';
+import { spawnSpec, harnessPatch, AGENTS, AGENT_IDS, agentLabel } from '../desktop/agents.js';
 import { installCodexHooks } from '../cli/init.js';
 
 const codev = { CODEV_SERVER: 'http://localhost:4321', CODEV_ROOM: 'r', CODEV_NAME: 'Ana · gpt', CODEV_KEY: 'k"ey' };
@@ -17,35 +17,41 @@ test('every AI has a name for the header and a place in the picker', () => {
   assert.equal(agentLabel('nonsense'), 'Claude', 'an unknown AI falls back to the robot everybody knows');
   assert.ok(AGENTS.chatgpt.experimental, 'ChatGPT is still experimental');
   assert.ok(!AGENTS.claude.experimental);
+  assert.equal(AGENTS.claude.engine, 'claude');
+  assert.equal(AGENTS.deepseek.engine, 'harness');
+  assert.equal(AGENTS.local.engine, 'harness');
+  assert.equal(AGENTS.chatgpt.engine, 'codex');
 });
 
 test('Claude runs as it is', () => {
   assert.deepEqual(spawnSpec('claude'), { command: 'claude', args: [], env: {}, unset: [] });
 });
 
-test('DeepSeek runs inside Claude Code against its Anthropic API, and needs a key', () => {
-  assert.throws(() => spawnSpec('deepseek', {}), /API key/);
-  const s = spawnSpec('deepseek', { key: 'sk-1', model: 'deepseek-v4-pro' });
-  assert.equal(s.command, 'claude');
-  assert.deepEqual(s.args, ['--permission-mode', 'auto'], 'it works agentically, with Claude Code\'s safeguards');
-  assert.equal(s.env.ANTHROPIC_BASE_URL, 'https://api.deepseek.com/anthropic');
-  assert.equal(s.env.ANTHROPIC_AUTH_TOKEN, 'sk-1');
-  assert.equal(s.env.ANTHROPIC_MODEL, 'deepseek-v4-pro');
-  assert.equal(s.env.ENABLE_TOOL_SEARCH, 'false', "DeepSeek's endpoint rejects Claude Code's tool search");
-  assert.equal(s.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '1000000', 'DeepSeek V4 has a 1M window');
-  assert.equal(s.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, '786432');
-  assert.equal(s.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'deepseek-flash', 'subagents and small tasks stay on DeepSeek');
-  assert.ok(s.unset.includes('ANTHROPIC_API_KEY'), 'an inherited Anthropic key must not take over');
-  assert.equal(spawnSpec('deepseek', { key: 'x', model: 'made-up' }).env.ANTHROPIC_MODEL, 'deepseek-flash[1m]');
+test('DeepSeek runs in the Harness, without Claude Code', () => {
+  assert.equal(AGENTS.deepseek.engine, 'harness');
+  assert.throws(() => spawnSpec('deepseek', {}), /DeepSeek Harness/);
+  const { patch, model, provider } = harnessPatch('deepseek', { model: 'deepseek-v4-pro', rules: '[CoDev] rules for Ana' });
+  assert.equal(model, 'deepseek-v4-pro');
+  assert.equal(provider, 'deepseek-official');
+  assert.match(patch, /name: '@deepseek-ai\/dsh-acp'/);
+  assert.match(patch, /provider: "deepseek-official"/);
+  assert.match(patch, /model: "deepseek-v4-pro"/);
+  assert.match(patch, /apiKeyEnv: "DEEPSEEK_API_KEY"/);
+  assert.ok(patch.includes('[CoDev] rules for Ana'), 'the CoDev rules reach the Harness');
+  assert.ok(!patch.includes('DEEPSEEK-API-KEY'), 'the key never goes in the patch file');
 });
 
-test('a local model runs inside Claude Code against Ollama', () => {
-  assert.throws(() => spawnSpec('local', {}), /local model/);
-  const s = spawnSpec('local', { model: 'qwen3:14b' });
-  assert.equal(s.command, 'claude');
-  assert.equal(s.env.ANTHROPIC_BASE_URL, 'http://localhost:11434');
-  assert.equal(s.env.ANTHROPIC_MODEL, 'qwen3:14b');
-  assert.equal(s.env.ENABLE_TOOL_SEARCH, 'false', "Ollama's endpoint does not implement tool search");
+test('a local model runs in the Harness against Ollama', () => {
+  assert.equal(AGENTS.local.engine, 'harness');
+  assert.throws(() => spawnSpec('local', {}), /DeepSeek Harness/);
+  const { patch, model, provider } = harnessPatch('local', { model: 'qwen2.5-coder:7b' });
+  assert.equal(model, 'qwen2.5-coder:7b');
+  assert.equal(provider, 'ollama');
+  assert.match(patch, /api: "openai-completions"/);
+  assert.match(patch, /baseURL: "http:\/\/localhost:11434\/v1"/);
+  assert.match(patch, /apiKeyEnv: "OLLAMA_API_KEY"/);
+  assert.match(patch, /id: "qwen2.5-coder:7b"/);
+  assert.match(patch, /model: "qwen2.5-coder:7b"/);
 });
 
 test('ChatGPT runs in Codex with the CoDev MCP server and rules passed at launch', () => {

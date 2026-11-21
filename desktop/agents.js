@@ -1,40 +1,43 @@
 // The AIs CoDev can open in a terminal, and how each one is started.
 //
-// DeepSeek and local models run inside Claude Code (the same harness, so the same hooks, file locking,
-// team context and replies): both speak Anthropic's API, so Claude Code only needs another endpoint.
-// ChatGPT runs in OpenAI's Codex CLI, which has Claude-compatible hooks, MCP servers and instructions.
+// Claude runs Claude Code. DeepSeek and local models run the DeepSeek Harness over ACP, so they need
+// no Claude Code; ChatGPT runs OpenAI's Codex CLI. Each engine is started by the main process.
 
 export const AGENTS = {
   claude: {
     id: 'claude',
     label: 'Claude',
     by: 'Anthropic',
+    engine: 'claude',
     command: 'claude',
     install: 'npm i -g @anthropic-ai/claude-code',
   },
   deepseek: {
     id: 'deepseek',
     label: 'DeepSeek',
-    by: 'DeepSeek API, in Claude Code',
-    command: 'claude',
-    install: 'npm i -g @anthropic-ai/claude-code',
+    by: 'DeepSeek Harness',
+    engine: 'harness',
+    command: 'dsh',
+    install: 'npm i -g @deepseek-ai/dsh',
     needsKey: true,
     keyUrl: 'https://platform.deepseek.com/api_keys',
-    models: ['deepseek-flash[1m]', 'deepseek-v4-pro'],
-    defaultModel: 'deepseek-flash[1m]',
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
+    defaultModel: 'deepseek-flash',
   },
   local: {
     id: 'local',
     label: 'Local',
-    by: 'Ollama, in Claude Code',
-    command: 'claude',
-    install: 'npm i -g @anthropic-ai/claude-code',
+    by: 'DeepSeek Harness + Ollama',
+    engine: 'harness',
+    command: 'dsh',
+    install: 'npm i -g @deepseek-ai/dsh',
     ollama: true,
   },
   chatgpt: {
     id: 'chatgpt',
     label: 'ChatGPT',
     by: 'OpenAI Codex CLI',
+    engine: 'codex',
     command: 'codex',
     install: 'npm i -g @openai/codex',
     login: 'codex login',
@@ -61,64 +64,10 @@ const toml = (v) => JSON.stringify(v); // a JSON string is a valid TOML basic st
  */
 export function spawnSpec(agentId, { model, key, codev = {}, runner, rules = '' } = {}) {
   const agent = AGENTS[agentId] || AGENTS.claude;
+  if (agent.engine === 'harness') throw new Error(`${agent.label} runs in the DeepSeek Harness.`);
   // Claude Code with another endpoint: an inherited ANTHROPIC_API_KEY would take over, so drop it.
-  const unset = [
-    'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL',
-    'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
-    'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
-    'CLAUDE_CODE_AUTO_COMPACT_WINDOW', 'CLAUDE_CODE_DISABLE_1M_CONTEXT', 'ENABLE_TOOL_SEARCH',
-  ];
+  const unset = ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL'];
   switch (agent.id) {
-    case 'deepseek': {
-      if (!key) throw new Error('DeepSeek needs an API key.');
-      const m = agent.models.includes(model) ? model : agent.defaultModel;
-      return {
-        command: 'claude',
-        // Claude Code's tool search sends "tool_definition" blocks that DeepSeek's Anthropic endpoint
-        // rejects (Claude Code >= 2.1.286): without this, DeepSeek answers but never gets to use tools.
-        // "auto" lets it work agentically (edits and safe commands) with Claude Code's own safeguards.
-        args: ['--permission-mode', 'auto'],
-        unset,
-        // The official DeepSeek integration for Claude Code (api-docs.deepseek.com):
-        // deepseek-flash[1m] has a 1M window, so compact at 768K and let subagents use the cheap model.
-        env: {
-          ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
-          ANTHROPIC_AUTH_TOKEN: key,
-          ANTHROPIC_MODEL: m,
-          ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-flash[1m]',
-          ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-flash[1m]',
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-flash',
-          CLAUDE_CODE_SUBAGENT_MODEL: 'deepseek-flash',
-          CLAUDE_CODE_MAX_CONTEXT_TOKENS: '1000000',
-          CLAUDE_CODE_AUTO_COMPACT_WINDOW: '786432',
-          API_TIMEOUT_MS: '600000',
-          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-          ENABLE_TOOL_SEARCH: 'false',
-        },
-      };
-    }
-    case 'local': {
-      if (!model) throw new Error('Choose a local model.');
-      return {
-        command: 'claude',
-        args: [],
-        unset,
-        env: {
-          ANTHROPIC_BASE_URL: OLLAMA_URL,
-          ANTHROPIC_AUTH_TOKEN: 'ollama',
-          ANTHROPIC_MODEL: model,
-          ANTHROPIC_SMALL_FAST_MODEL: model,
-          API_TIMEOUT_MS: '3000000', // local models on a CPU can take minutes per answer
-          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-          // Ollama's Anthropic endpoint does not implement tool search either.
-          ENABLE_TOOL_SEARCH: 'false',
-          // Most local models have a small context; Claude Code would otherwise assume 1M.
-          CLAUDE_CODE_MAX_CONTEXT_TOKENS: '32768',
-          CLAUDE_CODE_AUTO_COMPACT_WINDOW: '28000',
-          CLAUDE_CODE_DISABLE_1M_CONTEXT: '1',
-        },
-      };
-    }
     case 'chatgpt': {
       // The CoDev MCP server and CoDev's rules, passed at launch: the user's Codex config is not touched.
       const mcpEnv = { ...(runner?.env || {}), ...codev };
@@ -134,6 +83,65 @@ export function spawnSpec(agentId, { model, key, codev = {}, runner, rules = '' 
     default:
       return { command: 'claude', args: [], env: {}, unset: [] };
   }
+}
+
+/**
+ * The DSH profile overlay for a Harness AI: which model answers, which CoDev rules it receives, and
+ * (for Local) the Ollama route. The API key never goes in this file: it travels in the environment.
+ */
+export function harnessPatch(agentId, { model, rules = '' } = {}) {
+  const agent = AGENTS[agentId] || AGENTS.deepseek;
+  if (agent.engine !== 'harness') throw new Error(`${agent.label} does not run in the DeepSeek Harness.`);
+  const m = agent.models?.includes(model) ? model : agent.defaultModel || model;
+  const q = JSON.stringify;
+  const provider = agentId === 'local' ? 'ollama' : 'deepseek-official';
+  const persona = `You are a coding agent powered by the {{model}} model.\n\n${rules}`;
+  const lines = [
+    `- id: system-prompt`,
+    `  name: '@deepseek-ai/dsh-system-prompt'`,
+    `  config:`,
+    `    personaPrefix: ${q(persona)}`,
+  ];
+  if (agentId === 'local') {
+    lines.push(
+      `- id: llm-pi-ai`,
+      `  name: '@deepseek-ai/dsh-llm-pi-ai'`,
+      `  config:`,
+      `    providers:`,
+      `      ollama:`,
+      `        displayName: "Ollama"`,
+      `        api: "openai-completions"`,
+      `        baseURL: "http://localhost:11434/v1"`,
+      `        apiKeyEnv: "OLLAMA_API_KEY"`,
+      `        models:`,
+      `          - id: ${q(m)}`,
+      `            name: ${q(m)}`,
+      `            contextWindow: 32768`,
+      `            maxTokens: 8192`
+    );
+  } else {
+    lines.push(
+      `- id: llm-deepseek`,
+      `  name: '@deepseek-ai/dsh-llm-deepseek-api-key'`,
+      `  config:`,
+      `    apiKeyEnv: "DEEPSEEK_API_KEY"`
+    );
+  }
+  lines.push(
+    `- id: agent-default-model`,
+    `  name: '@deepseek-ai/dsh-agent-default-model'`,
+    `  config:`,
+    `    provider: ${q(provider)}`,
+    `    model: ${q(m)}`,
+    `- id: acp`,
+    `  name: '@deepseek-ai/dsh-acp'`,
+    `  inject:`,
+    `    - acpAppStartup`,
+    `  config:`,
+    `    provider: ${q(provider)}`,
+    `    model: ${q(m)}`
+  );
+  return { patch: lines.join('\n') + '\n', model: m, provider };
 }
 
 /** Models installed in the local Ollama, or null if Ollama is not running. */

@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { startServer } from '../server/server.js';
 import { setupProject, useRunner, getRunner, installCodexHooks } from '../cli/init.js';
 import { projectRules } from '../cli/config.js';
-import { AGENTS, spawnSpec, ollamaModels } from './agents.js';
+import { AGENTS, spawnSpec, harnessPatch, ollamaModels } from './agents.js';
 import { ensureCloudflared } from './cloudflared.js';
 import { History } from './history.js';
 
@@ -288,11 +288,29 @@ ipcMain.handle('agent-key-set', (_e, agent, key) => {
 
 const findCommand = (PATH, command) => PATH.split(path.delimiter).map((d) => path.join(d, command)).find((f) => fs.existsSync(f));
 
+/** The DeepSeek Harness CLI: on PATH, or in the npm npx cache (how `npx @deepseek-ai/dsh` installs it). */
+function findDsh(PATH) {
+  const direct = findCommand(PATH, 'dsh');
+  if (direct) return fs.realpathSync(direct);
+  const home = os.homedir();
+  const npx = path.join(home, '.npm', '_npx');
+  try {
+    for (const dir of fs.readdirSync(npx)) {
+      const file = path.join(npx, dir, 'node_modules', '.bin', 'dsh');
+      if (fs.existsSync(file)) return fs.realpathSync(file);
+    }
+  } catch {}
+  for (const file of [path.join(home, '.local', 'bin', 'dsh'), '/usr/local/bin/dsh']) {
+    if (fs.existsSync(file)) return fs.realpathSync(file);
+  }
+  return null;
+}
+
 ipcMain.handle('agents-info', async () => {
   const PATH = await getUserPath();
   return {
     agents: AGENTS,
-    installed: { claude: !!findCommand(PATH, 'claude'), codex: !!findCommand(PATH, 'codex') },
+    installed: { claude: !!findCommand(PATH, 'claude'), codex: !!findCommand(PATH, 'codex'), dsh: !!findDsh(PATH) },
     hasKey: { deepseek: !!getKey('deepseek') },
     ollama: await ollamaModels(),
     secureStorage: safeStorage.isEncryptionAvailable(),
@@ -310,28 +328,71 @@ ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agen
     const a = AGENTS[agentId] || AGENTS.claude;
     const key = a.needsKey ? getKey(agentId) : null;
     if (a.needsKey && !key) throw new Error(`No ${a.label} API key saved. Add it on the start screen and try again.`);
-    const spec = spawnSpec(agentId, {
-      model,
-      key,
-      codev: Object.fromEntries(Object.entries(env || {}).filter(([k]) => k.startsWith('CODEV_'))),
-      runner: getRunner(),
-      rules: projectRules({ name: env?.CODEV_NAME || 'You', room: env?.CODEV_ROOM || '' }),
-    });
-    file = findCommand(PATH, spec.command);
-    if (!file) {
-      throw new Error(`Cannot find \`${spec.command}\`. Install it with: ${a.install}${a.login ? `, then sign in with: ${a.login}` : ''}`);
-    }
-    // Codex asks for trust once; if the hooks cannot be written the terminal still works, only without locking.
-    if (spec.command === 'codex') {
-      try {
-        installCodexHooks(cwd);
-      } catch (err) {
-        console.warn(`CoDev: cannot install the Codex hooks in ${cwd}:`, err.message);
+    const codevEnv = Object.fromEntries(Object.entries(env || {}).filter(([k]) => k.startsWith('CODEV_')));
+    const rules = projectRules({ name: env?.CODEV_NAME || 'You', room: env?.CODEV_ROOM || '' });
+    if (a.engine === 'harness') {
+      const dsh = findDsh(PATH);
+      if (!dsh) throw new Error(`The DeepSeek Harness is not installed. Install it with: ${a.install}`);
+      const node = findCommand(PATH, 'node');
+      if (!node) throw new Error('The DeepSeek Harness needs Node.js 20 or newer. Install it from https://nodejs.org and try again.');
+      const spec = harnessPatch(agentId, {
+        model,
+        rules:
+          `${rules}\n\n[CoDev Harness] You run in the DeepSeek Harness. Use the codev MCP tools: call codev_set_intent before starting, ` +
+          'codev_claim_files before changing a file (if it is held by someone else, leave it alone), codev_release_files after, ' +
+          'and codev_team_status to see your teammates. Keep the codev/history log as instructed.',
+      });
+      const patchFile = path.join(app.getPath('userData'), 'harness', `${String(id).replace(/[^\w.-]/g, '_')}.yml`);
+      fs.mkdirSync(path.dirname(patchFile), { recursive: true });
+      fs.writeFileSync(patchFile, spec.patch);
+      const runner = getRunner();
+      const mcp = [
+        {
+          name: 'codev',
+          command: node,
+          args: [runner.cli, 'mcp'],
+          env: Object.entries(codevEnv).map(([name, value]) => ({ name, value: String(value) })),
+        },
+      ];
+      file = process.execPath;
+      args = [path.join(path.dirname(runner.cli), 'harness.js')];
+      extraEnv = {
+        ...runner.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        CODEV_DSH: dsh,
+        CODEV_NODE: node,
+        CODEV_HARNESS_AGENT: agentId,
+        CODEV_HARNESS_MODEL: spec.model,
+        CODEV_HARNESS_PATCH: patchFile,
+        CODEV_HARNESS_MCP: JSON.stringify(mcp),
+        DSH_PERMISSION_MODE: 'danger-full-access',
+        ...(a.needsKey ? { DEEPSEEK_API_KEY: key } : { OLLAMA_API_KEY: 'ollama' }),
+      };
+      unset = ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL'];
+    } else {
+      const spec = spawnSpec(agentId, {
+        model,
+        key,
+        codev: codevEnv,
+        runner: getRunner(),
+        rules,
+      });
+      file = findCommand(PATH, spec.command);
+      if (!file) {
+        throw new Error(`Cannot find \`${spec.command}\`. Install it with: ${a.install}${a.login ? `, then sign in with: ${a.login}` : ''}`);
       }
+      // Codex asks for trust once; if the hooks cannot be written the terminal still works, only without locking.
+      if (spec.command === 'codex') {
+        try {
+          installCodexHooks(cwd);
+        } catch (err) {
+          console.warn(`CoDev: cannot install the Codex hooks in ${cwd}:`, err.message);
+        }
+      }
+      args = spec.args;
+      extraEnv = spec.env;
+      unset = spec.unset;
     }
-    args = spec.args;
-    extraEnv = spec.env;
-    unset = spec.unset;
   }
   const base = cleanEnv();
   for (const k of unset) delete base[k];
@@ -525,9 +586,26 @@ function prepareRuntime() {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.writeFileSync(to, fs.readFileSync(from));
   };
+  const copyTree = (from, to) => {
+    fs.mkdirSync(to, { recursive: true });
+    for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+      const a = path.join(from, entry.name);
+      const b = path.join(to, entry.name);
+      if (entry.isDirectory()) copyTree(a, b);
+      else fs.writeFileSync(b, fs.readFileSync(a));
+    }
+  };
   if (!fs.existsSync(path.join(dir, 'cli', 'codev.js'))) {
     for (const f of fs.readdirSync(path.join(APP_DIR, 'cli'))) if (f.endsWith('.js')) copy(path.join(APP_DIR, 'cli', f), path.join(dir, 'cli', f));
     copy(path.join(APP_DIR, 'desktop', 'history.js'), path.join(dir, 'desktop', 'history.js'));
+    // The Harness terminal (cli/harness.js) imports the ACP SDK; the packaged app runs the bridge from this folder.
+    try {
+      copyTree(path.join(APP_DIR, 'node_modules', '@agentclientprotocol', 'sdk'), path.join(dir, 'node_modules', '@agentclientprotocol', 'sdk'));
+      // The SDK's peer dependency: its generated schema modules import zod at runtime.
+      copyTree(path.join(APP_DIR, 'node_modules', 'zod'), path.join(dir, 'node_modules', 'zod'));
+    } catch (err) {
+      console.warn('CoDev: cannot copy the ACP SDK to the runtime folder:', err.message);
+    }
     fs.writeFileSync(path.join(dir, 'package.json'), '{ "type": "module" }\n');
   }
   useRunner({ exe: process.env.APPIMAGE || process.execPath, cli: path.join(dir, 'cli', 'codev.js'), env: { ELECTRON_RUN_AS_NODE: '1' } });

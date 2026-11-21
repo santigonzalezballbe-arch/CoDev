@@ -1,6 +1,6 @@
 {
   "name": "codev",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Code as a team with AI without stepping on each other: Claude Code terminals side by side, live, with file locking between agents.",
   "type": "module",
   "bin": {
@@ -20,6 +20,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/libre-franklin": "^5.3.0",
     "@fontsource/source-serif-4": "^5.3.1",
@@ -28,7 +29,8 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/xterm": "^6.0.0",
-    "ws": "^8.23.0"
+    "ws": "^8.23.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "electron": "^45.4.1",

@@ -241,7 +241,8 @@ function agentWarning(id) {
     parts.push('This system has no keychain, so CoDev will not save the key. On Linux, try starting CoDev with CODEV_PASSWORD_STORE=gnome-libsecret.');
   }
   if (AI_STATE.info?.installed && AI_STATE.info.installed[a.command] === false) {
-    parts.push(`${a.command === 'codex' ? 'Codex' : 'Claude Code'} is not installed: ${a.install}.`);
+    const tool = a.command === 'codex' ? 'Codex' : a.command === 'dsh' ? 'The DeepSeek Harness' : 'Claude Code';
+    parts.push(`${tool} is not installed: ${a.install}.`);
   }
   return parts.join(' ');
 }
@@ -356,7 +357,7 @@ function renderStartAI() {
         : models.length
           ? `${models.length} models installed in Ollama.`
           : 'No models installed. Pull one with ollama pull qwen2.5-coder:7b.'
-      : 'deepseek-flash[1m] is the fast one and has a 1M context; deepseek-v4-pro is stronger and costs more.';
+      : 'deepseek-flash is the fast one and has a 1M context; deepseek-v4-pro is stronger and costs more.';
   } else {
     ui.model = '';
   }
@@ -1502,7 +1503,8 @@ function buildConvo(p) {
     typing: h('div', { class: 'convo-working' }, `${splitMember(p.member)[0]} is typing`, h('span', { class: 'dots' }, '...')),
   };
   p.convo.append(p.cv.list, p.cv.typing, p.cv.working);
-  if (p.local) {
+  // The Harness terminal is already a chat: its prompts are typed in the terminal view.
+  if (p.local && AGENTS[p.agent]?.engine !== 'harness') {
     const input = h('textarea', { rows: '1', placeholder: `Ask ${who} something`, autocomplete: 'off' });
     const form = h('form', { class: 'convo-form' }, input, h('button', { type: 'submit', class: 'send' }, 'Send'));
     form.addEventListener('submit', (e) => {
@@ -1618,7 +1620,13 @@ function renderConvo(p, force = false) {
     }
   }
   if (!out.length) {
-    out.push(h('p', { class: 'cv-empty' }, p.local ? `Write below to ask ${agentLabel(p.agent)} for something. Its replies and everything it does will show here.` : `When ${person} asks ${agentLabel(p.agent)} for something, the conversation shows here.`));
+    const harness = AGENTS[p.agent]?.engine === 'harness';
+    out.push(h('p', { class: 'cv-empty' },
+      harness
+        ? `Type in the Terminal view. This window shows ${agentLabel(p.agent)}'s conversation.`
+        : p.local
+          ? `Write below to ask ${agentLabel(p.agent)} for something. Its replies and everything it does will show here.`
+          : `When ${person} asks ${agentLabel(p.agent)} for something, the conversation shows here.`));
   }
   list.replaceChildren(...out);
   if (atBottom || force) list.scrollTop = list.scrollHeight;

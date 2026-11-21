@@ -8,7 +8,7 @@ CoDev fixes this with three pieces:
 
 1. **A live split screen.** A desktop app with the whole team's AI terminals side by side: Claude, DeepSeek, a model running on your own computer with Ollama, or ChatGPT. You type in yours as usual. You watch your teammates' terminals live, exactly as they see them. Above each terminal, a small character shows what that AI is doing (working, typing, waiting, asleep...), along with its name, its current task and the files it holds. Anyone can also watch the room from a browser, with the same interface.
 2. **Your AI knows what your teammate's AI is doing.** Before every prompt, CoDev adds a summary of the team's work to your AI's context: tasks, claimed files, recent activity and notes.
-3. **File locking.** When an AI edits a file, it claims it. If another AI tries to edit that file, CoDev blocks the edit and tells it who is working there and on what. The AIs can also ask each other for things with notes.
+3. **File locking.** When an AI edits a file, it claims it. If another AI tries to edit that file, CoDev blocks the edit and tells it who is working there and on what. Claude Code and Codex enforce this before the edit; the Harness uses the same claim tools through MCP (so it is advisory there for now). The AIs can also ask each other for things with notes.
 
 ## Install
 
@@ -26,15 +26,15 @@ The app opens the AI you choose, but does not include any of them. Install the o
 | AI | What it needs |
 |---|---|
 | **Claude** | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and signed in. |
-| **DeepSeek** | Claude Code, and a [DeepSeek API key](https://platform.deepseek.com/api_keys) (it runs inside Claude Code, against DeepSeek's API). |
-| **Local** | Claude Code and [Ollama](https://ollama.com) running, with at least one model pulled (`ollama pull qwen2.5-coder:7b`). |
+| **DeepSeek** | Node.js 20+, the [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/en/guide/quickstart) (`npm i -g @deepseek-ai/dsh`) and a [DeepSeek API key](https://platform.deepseek.com/api_keys). No Claude Code needed. |
+| **Local** | Node.js 20+, the DeepSeek Harness and [Ollama](https://ollama.com) running, with at least one model pulled (`ollama pull qwen2.5-coder:7b`). No Claude Code needed. |
 | **ChatGPT** (experimental) | [OpenAI Codex CLI](https://github.com/openai/codex): `npm i -g @openai/codex`, then `codex login`. |
 
 **The installers are not signed.** CoDev is free and open source and has no paid signing certificates, so the first time:
 - **Windows** shows "Windows protected your PC": click **More info**, then **Run anyway**.
 - **macOS** says it cannot check the app: in Applications, right-click CoDev, choose **Open**, then **Open** again. Only once.
 
-Everything else comes with the app: you do not need Node.js, and the tool for sharing online is downloaded the first time you use it.
+The app itself does not need Node.js (it brings its own runtime); the DeepSeek Harness does, because `dsh` is a Node program. The tool for sharing online is downloaded the first time you use it.
 
 ### From source
 
@@ -47,16 +47,16 @@ npm run app
 
 ## Using the app
 
-1. Write **your name**, choose **your AI** and **where you will work**: a **GitHub repository** (it suggests your repositories if you are signed in with `gh`, or paste any URL) or a **local folder**. If you choose **DeepSeek**, pick `deepseek-flash[1m]` (fast, 1M context) or `deepseek-v4-pro` and paste its API key: it is encrypted with your system keychain and the interface never shows it again. If you choose **Local**, pick one of the models installed in Ollama; CoDev warns you when they can be slow.
+1. Write **your name**, choose **your AI** and **where you will work**: a **GitHub repository** (it suggests your repositories if you are signed in with `gh`, or paste any URL) or a **local folder**. If you choose **DeepSeek**, pick `deepseek-flash` (fast, 1M context) or `deepseek-v4-pro` and paste its API key: it is encrypted with your system keychain and the interface never shows it again. If you choose **Local**, pick one of the models installed in Ollama; CoDev warns you when they can be slow.
 2. Choose **Create a room** if your computer will be the server, and who can join: **Same network** or **Anyone with the invite** (over the internet, see below). Or choose **Join a room** and paste the invite your teammate sent you: it fills in the server, the room and the key. If the room already has a repository, the app detects it and clones it for you into `~/CoDev/<name>`.
-3. Enter. The app sets up the hooks and the MCP server in the project and opens your AI in your terminal.
+3. Enter. The app sets up the MCP server in the project (and the Claude Code/Codex hooks when you use those engines) and opens your AI in your terminal.
 
 What you will find:
-- **Your terminal** (left): the AI you chose, running in a real terminal. Claude, DeepSeek and local models run inside Claude Code; ChatGPT runs inside OpenAI's Codex CLI. You type in it as usual. `Ctrl+Shift+C` copies the selection.
+- **Your terminal** (left): the AI you chose, running in a real terminal. Claude runs Claude Code; DeepSeek and local models run the **DeepSeek Harness** (a chat in the terminal, no Claude Code); ChatGPT runs OpenAI's Codex CLI. You type in it as usual. `Ctrl+Shift+C` copies the selection.
 - **Your teammates' terminals** (right): live, read-only replicas with the same columns and rows as the original, scaled to fill their window. Each header shows whose terminal it is, which AI it runs and what it is doing.
 - **Two views**, for all windows from the top bar or one window at a time from its header:
   - **Terminal**: the real AI session. Text grows with the window (13 to 22 px), so big screens stay readable.
-  - **Conversation**: each AI as a chat. Prompts, the AI's replies with formatting, what it did (with diffs), and a clear call when it needs you (*Answer in the terminal*). Your own windows have a box to write prompts. Replies come from the transcript Claude Code keeps for each session (`transcript_path`), read by the hooks; Codex passes its last reply to the hook directly.
+  - **Conversation**: each AI as a chat. Prompts, the AI's replies with formatting, what it did (with diffs), and a clear call when it needs you (*Answer in the terminal*). With Claude Code and Codex you can write a prompt here; the Harness terminal is already a chat, so there you type in the **Terminal** view and this window follows along. Replies come from the transcript Claude Code keeps for each session (`transcript_path`) or from the Harness bridge.
 - **The character** above each terminal shows its state: *working*, *typing*, *waiting*, *asleep*, *stopped by CoDev* or *offline*. Each AI has its own character: Claude's robot, DeepSeek's whale, the local model's llama, and ChatGPT's robot with a visor. Typing counts only real keys and pastes (not the focus and mouse reports a terminal sends by itself), and is shared without ever sending what you type. *Working* needs sustained output, like the AI's spinner, not a single redraw.
 - **Another AI**: opens another terminal of your own, with the same AI or a different one. You give it a name (a suggestion like *Nova*, or what it is on: *frontend*, *tests*...) and it shows as "Alex · tests" in your colour. Each terminal is its own agent with its own AI, its own session and its own claimed files: for example, Claude on the interface and DeepSeek on the tests.
 - **Invite**: copies a one-line invite link with the server, the room and the room key. Opened in a browser, the page offers to open the CoDev app (through a `codev://` link) and the app jumps straight into the join screen of that room. Without the app, the same page lets you watch the room in the browser. Pasting the link into the app's join screen also fills in everything.
@@ -70,14 +70,16 @@ If port 4321 is taken, the app uses the next free one.
 
 ### The AIs
 
-All four get the same CoDev features: the live terminal and character, the team summary before each prompt, file locking, the `codev/` log, the MCP tools and the chat. What changes is how each one starts (`desktop/agents.js`):
+All four get CoDev's live terminal and character, the `codev/` project log, the MCP tools and the chat. What changes is the engine that runs them (`desktop/agents.js`):
 
-- **Claude** runs Claude Code as usual, with the project's hooks and MCP server.
-- **DeepSeek** runs **inside Claude Code** with `ANTHROPIC_BASE_URL` pointing at DeepSeek's Anthropic-compatible API, so it keeps the whole integration. CoDev follows DeepSeek's official Claude Code integration: `deepseek-flash[1m]` by default (1M context, auto-compact at 768K) or `deepseek-v4-pro` for harder work, with the Opus/Sonnet/Haiku aliases and subagents mapped to DeepSeek too. CoDev does not force an effort level: use `/effort low`, `medium`, `high` or `max` inside the terminal; your choice lasts for that session. It launches it with Claude Code's tool search off (`ENABLE_TOOL_SEARCH=false`), because since Claude Code 2.1.286 that search sends blocks DeepSeek's endpoint rejects and DeepSeek then answers without using any tools, and in `auto` permission mode, so it edits files and runs safe commands without stopping at every step (Claude Code still guards the dangerous ones). The key is encrypted with the operating system's keychain (`safeStorage`) and stays in the app: the screen never shows it again. If the system has no keychain, CoDev refuses to save it instead of writing it in plain text. On a Linux desktop with more than one keyring (KDE, for example), if the screen says there is no keychain, start CoDev with the other one: `CODEV_PASSWORD_STORE=gnome-libsecret` or `CODEV_PASSWORD_STORE=kwallet6`. Use the same keyring every time: a key saved with one cannot be read by the other.
-- **Local** also runs inside Claude Code, pointed at your Ollama (`http://localhost:11434`), with tool search off as well (Ollama's Anthropic endpoint does not implement it). The model list comes from Ollama itself. A model on a CPU can take minutes per answer: CoDev warns you and suggests a small one. With a GPU, or a 7B model, it is usable.
+- **Claude** runs Claude Code as usual, with the project's hooks, so CoDev's file locking is automatic.
+- **DeepSeek** runs the **DeepSeek Harness** (`dsh`) over its ACP stdio profile. No Claude Code. It uses `deepseek-flash` by default (1M context) or `deepseek-v4-pro` for harder work, and CoDev drives the session: prompts, streaming replies, tool calls and permission answers. The API key is encrypted with the operating system's keychain (`safeStorage`) and passed to the Harness in the environment; the screen never shows it again. If the system has no keychain, CoDev refuses to save it instead of writing it in plain text. On a Linux desktop with more than one keyring (KDE, for example), if the screen says there is no keychain, start CoDev with the other one: `CODEV_PASSWORD_STORE=gnome-libsecret` or `CODEV_PASSWORD_STORE=kwallet6`. Use the same keyring every time: a key saved with one cannot be read by the other.
+- **Local** runs the same Harness against Ollama's OpenAI-compatible endpoint (`http://localhost:11434/v1`). The model list comes from Ollama itself. A model on a CPU can take minutes per answer: CoDev warns you and suggests a small one. With a GPU, or a 7B model, it is usable.
 - **ChatGPT** (experimental) runs in **OpenAI's Codex CLI**. CoDev passes the MCP server and its instructions on the command line (`-c`), so your Codex configuration is not touched, and installs Claude-compatible hooks in `.codex/hooks.json` when the terminal opens. Codex's edits arrive as patches, and CoDev locks and logs them like Claude's edits. **Codex asks you once to trust the folder before it runs the hooks**, so until you accept, the terminal works but file locking does not. This path is newer than the others: treat it as experimental.
 
 A room can mix them freely. The header of each terminal shows which AI it runs, the character matches, and the conversation view says "*DeepSeek* is working" instead of always naming Claude.
+
+**Harness and file locking:** the Harness has no Claude Code hooks, so CoDev cannot intercept an edit before it happens. It mounts CoDev's MCP server instead, and the Harness AI is instructed to call `codev_claim_files` before changing a file and `codev_release_files` after; the MCP server still reports conflicts and the `codev/` log is kept. Automatic denial on a claimed file is only enforced for Claude Code and Codex today. This is the main difference to keep in mind when mixing a Harness terminal with a Claude one.
 
 ### Teammates on another network
 
@@ -114,9 +116,9 @@ Only allow people you trust: the guest's Claude Code can run commands on the hos
 └────────────────────────┘        └─────────────────────────┘        └────────────────────────┘
 ```
 
-- `desktop/`: the Electron app. `main.js` runs the PTYs, keeps the AI keys in the system keychain, clones repositories, hosts the server and opens the tunnel. `agents.js` says how each AI is started (Claude, DeepSeek and local models inside Claude Code; ChatGPT in Codex). `cloudflared.js` finds or downloads cloudflared. `history.js` writes the local history file. `renderer.js` holds the xterm.js terminals, the relay, the headers, the four characters and the history panel.
+- `desktop/`: the Electron app. `main.js` runs the PTYs, the Harness bridge and Codex, keeps the AI keys in the system keychain, clones repositories, hosts the server and opens the tunnel. `agents.js` says which engine each AI uses (Claude Code for Claude, the DeepSeek Harness for DeepSeek and local models, Codex for ChatGPT). `cloudflared.js` finds or downloads cloudflared. `history.js` writes the local history file. `renderer.js` holds the xterm.js terminals, the relay, the headers, the four characters and the history panel.
 - `server/`: REST API, WebSocket (`terminals.js`: terminals, the AI each one runs, and room events) and the browser view, which is the desktop UI itself served from `desktop/`.
-- `cli/`: the `codev` command. It includes the Claude Code/Codex hooks, the MCP server, `init`, `watch` and `status`.
+- `cli/`: the `codev` command. It includes the Claude Code/Codex hooks, the MCP server, `harness.js` (the ACP terminal for the DeepSeek Harness), `init`, `watch` and `status`.
 - `test/`: end-to-end tests with the real server, hooks, MCP server and terminal relay, plus the start-up of each AI.
 
 **How a terminal is relayed:** the app sends the PTY output once xterm.js has processed it. Every 3 seconds it also sends a snapshot of the screen (`@xterm/addon-serialize`). The server keeps the latest snapshot and the chunks after it, so whoever connects late sees the exact screen. Only the owner can publish to their own terminal.
@@ -163,14 +165,14 @@ CoDev tells every AI in the room to keep a log **inside the repository**, so the
 - After any task that changes files, the AI appends an entry to `codev/history/<name>.md`: when, what was asked, what changed and why, and what is left to do. It commits it with the rest of its changes.
 - Each person's AI writes only its own file, so the logs are never locked and never conflict when you merge.
 - Before starting a task, the AI is told to read its teammates' logs in `codev/history/`.
-- If a turn changed files but the AI did not write its entry, CoDev's `Stop` hook asks it to write it before finishing (once per turn, so it can never get stuck).
+- With Claude Code and Codex, if a turn changed files but the AI did not write its entry, CoDev's `Stop` hook asks it to write it before finishing (once per turn, so it can never get stuck). The Harness has no hooks: its rules tell it to keep the log.
 - `codev init` and the app create `codev/README.md` explaining the folder.
 
 This is the shared, human-readable log; `.codev/history.jsonl` (with a dot, git-ignored) is each person's complete local record.
 
 ## What each hook does
 
-The same handler runs for Claude Code and for Codex.
+The same handler runs for Claude Code and for Codex. DeepSeek and Local run the DeepSeek Harness, which does not use these hooks: they get CoDev's rules through their profile and CoDev's MCP server through the ACP session.
 
 | Hook | What CoDev does |
 |---|---|
@@ -205,7 +207,7 @@ npm run dist         # the installers for the system you are on
 
 Windows and macOS installers have to be built on those systems. GitHub does it for you: pushing a tag like `v0.2.0` runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds the three systems' installers and publishes them as a release.
 
-How the packaged app runs the hooks: there is no separate Node.js, so the app copies the CLI to its data folder (`runtime/<version>/`) and the hooks and MCP server run it with the app's own binary as Node (`ELECTRON_RUN_AS_NODE=1`). An AppImage is run through its own file, which does not move between launches. Invite links (`codev://`) are registered by the installer (Windows, macOS, `.deb`) or by the app itself (AppImage, and from source on Linux).
+How the packaged app runs the CLI: there is no separate Node.js, so the app copies the CLI (and the small ACP SDK used by the Harness bridge) to its data folder (`runtime/<version>/`) and the hooks, the MCP server and the bridge run it with the app's own binary as Node (`ELECTRON_RUN_AS_NODE=1`). An AppImage is run through its own file, which does not move between launches. Invite links (`codev://`) are registered by the installer (Windows, macOS, `.deb`) or by the app itself (AppImage, and from source on Linux).
 
 ## Tests
 
@@ -219,7 +221,9 @@ npm test
 - Teammates' terminals are read-only (you cannot type in someone else's terminal yet).
 - A guest terminal runs on the host's computer: it is as powerful as a shared terminal there, and it only exists while the host's app is open.
 - If a terminal shrinks while an AI is working (for example when a new teammate joins), drawing artifacts may remain until the next redraw.
-- DeepSeek and local models run through Claude Code, so they need it installed. A local model on a machine without a GPU can be too slow to be practical: CoDev warns you, but it cannot make it faster.
+- DeepSeek and local models need the DeepSeek Harness installed (`npm i -g @deepseek-ai/dsh`), but not Claude Code. A local model on a machine without a GPU can be too slow to be practical: CoDev warns you, but it cannot make it faster.
+- **Harness file locking is advisory:** it uses the MCP claim tools and the rules, not a pre-edit hook, so a Harness AI can still edit a claimed file if it ignores the claim. Automatic denial works with Claude Code and Codex. A DSH plugin could close this gap later.
+- The Harness terminal is a chat (text, tool lines, prompts), not a full TUI like its web app. Long replies are printed as they arrive, without rich rendering.
 - **ChatGPT is experimental.** Codex must trust the folder before it runs CoDev's hooks; until then its edits are not locked. Testing it with a real OpenAI account is still pending.
 - Access control is one key per room, shared through the invite: there are no user accounts, and anyone holding the invite can watch. Rooms started with `codev server` without `--key` are open to anyone who can reach them.
 - Locks are per file, not per function or line.
@@ -233,6 +237,7 @@ npm test
 - Let an owner hand control of their terminal to a teammate.
 - Connectors for more agents through hooks (Cursor, Gemini CLI...).
 - Making the ChatGPT/Codex path as tested as the Claude one.
+- A DSH plugin that enforces CoDev's file claims before an edit, so Harness agents get the same automatic locking as Claude Code.
 
 ## License
 
