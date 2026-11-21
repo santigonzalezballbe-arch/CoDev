@@ -48,3 +48,11 @@ Petició: el hook `Stop` de CoDev demanava el registre de `desktop/renderer.js`,
 Canvi: cap canvi de codi. Aquesta nota s'ha escrit amb l'eina Edit perquè el hook la detecti.
 
 Pendent: el hook `Stop` no veu les entrades del registre escrites des de Bash (`cat >> …`), només les que es fan amb Edit o Write. Caldria que comprovés el contingut del fitxer i no l'eina amb què s'ha escrit.
+
+## 2026-11-21 23:50
+
+Petició: publicar la versió nova perquè els canvis arribin als instal·ladors (sobretot al de Windows).
+
+Canvis: `package.json` i `package-lock.json` passen a 0.4.1. A `.github/workflows/release.yml`, les notes de la release ara diuen que CoDev instal·la Claude Code sol. Etiqueta `v0.4.1` pujada: GitHub Actions compila els instal·ladors i publica la release.
+
+Pendent: provar a Windows que la instal·lació automàtica de Claude Code funciona.

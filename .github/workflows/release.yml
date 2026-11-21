@@ -64,8 +64,8 @@ jobs:
           | Windows | \`CoDev-Setup-*.exe\` |
           | macOS (Apple silicon) | \`CoDev-*-arm64.dmg\` |
 
-          You need the AI you choose: [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-          for Claude, the [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/en/guide/quickstart)
+          You need the AI you choose. For Claude, CoDev installs [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+          for you the first time you open a Claude terminal (on Windows, also Git for Windows); you only sign in. The [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/en/guide/quickstart)
           (Node.js 20+) for DeepSeek and local Ollama models, and the
           [OpenAI Codex CLI](https://github.com/openai/codex) for ChatGPT.
 
