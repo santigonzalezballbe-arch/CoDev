@@ -230,19 +230,23 @@ async function mcpCall(cwd, name, args = {}) {
   return text;
 }
 
-test('the AIs can read the chat and search the whole history', async () => {
+test("the AIs read the AIs' chat (not the people's) and search the whole history", async () => {
   const note = (body) => fetch(`${base}/api/rooms/test/note`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  await note({ member: 'Laura', text: 'Team: we freeze the API until Friday' });
-  await note({ member: 'Ana', to: 'Laura', text: 'Ok for me' });
+  await note({ member: 'Laura', from: 'ai', text: 'Team: we freeze the API until Friday' });
+  await note({ member: 'Ana', from: 'ai', to: 'Laura', text: 'Ok for me' });
+  await note({ member: 'Laura', from: 'human', text: 'Lunch at two, people only' });
 
-  // A message to everyone reaches every AI with its next prompt (not only messages addressed to it)
+  // An AI message to everyone reaches every AI with its next prompt (not only messages addressed to it)
   const ctx = JSON.parse((await hook(dirB, { hook_event_name: 'UserPromptSubmit', prompt: 'Next task' })).out).hookSpecificOutput.additionalContext;
   assert.match(ctx, /we freeze the API until Friday/);
   assert.match(ctx, /codev_search_history/);
+  assert.doesNotMatch(ctx, /Lunch at two/, "the people's chat never reaches an AI");
 
   const chat = await mcpCall(dirB, 'codev_read_chat');
-  assert.match(chat, /Laura wrote to everyone: Team: we freeze the API until Friday/);
-  assert.match(chat, /Ana wrote to Laura: Ok for me/);
+  assert.match(chat, /Laura's AI wrote to everyone: Team: we freeze the API until Friday/);
+  assert.match(chat, /Ana's AI wrote to Laura: Ok for me/);
+  assert.doesNotMatch(chat, /Lunch at two/);
+  assert.doesNotMatch(await mcpCall(dirB, 'codev_search_history', { query: 'lunch' }), /Lunch at two/);
 
   const who = await mcpCall(dirB, 'codev_search_history', { query: 'auth.js', kind: 'edit' });
   assert.match(who, /Ana changed: Edited src\/auth\.js/);

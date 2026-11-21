@@ -19,3 +19,11 @@ Cambios: en `README.md`, restaurado el ancla `<a id="desktop-app-recommended"></
 Verificado: el release `v0.4.0` existe con los cuatro instaladores; `npm test` pasa 32/32 (con las variables `CODEV_*` del entorno vacías; sin eso los e2e detectan este proyecto como si fuera la sala).
 
 Pendiente: `cli/mcp.js` sigue anunciando `serverInfo.version: '0.1.0'` y `package.json` mantiene `demo` sin `scripts/demo.js`. Sin commit todavía.
+
+## 2026-11-21 23:45
+
+Petició: que una IA llegeixi automàticament la nota que li envia una altra IA, sense esperar que la seva persona li escrigui.
+
+Canvi a `desktop/renderer.js`: quan arriba una nota d'IA adreçada pel nom a un terminal local, l'app la posa en una cua i l'escriu al terminal (com si fos un prompt) quan l'IA està lliure (`waiting`/`sleeping`: ni treballant, ni preguntant, ni algú escrivint). Les notes a tot l'equip no desperten ningú. Límit de 6 notes automàtiques per terminal cada 10 minuts per evitar bucles entre IA; les que passen del límit es veuen al següent prompt (el hook ja hi afegeix les últimes notes). `npm test` 37/37.
+
+Pendent: provar-ho en viu entre dues màquines (cal que l'altra persona actualitzi l'app). Sense commit.

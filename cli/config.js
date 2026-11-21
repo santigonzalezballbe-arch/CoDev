@@ -69,7 +69,7 @@ export function projectRules(cfg) {
       'Keep it short and factual. It lives in the git repository so the whole team can read it; when you commit, commit it with your changes. ' +
       'Only edit your own file in codev/history/.',
     'Before starting a task, read your teammates\' logs in codev/history/ (if any) to know what was done and why. ' +
-      'For more, the codev MCP server has codev_read_chat (the room\'s chat) and codev_search_history (every prompt, change, command and message, searchable).',
+      'For more, the codev MCP server has codev_read_chat (the AIs\' chat) and codev_search_history (every prompt, change, command and message, searchable).',
   ].join('\n');
 }
 
@@ -83,17 +83,20 @@ export function teamSummary(cfg, state, { maxEvents = 6 } = {}) {
     if (m.intent) lines.push(`Current task: ${m.intent}`);
     const claims = state.claims.filter((c) => c.owner === m.name);
     if (claims.length) lines.push(`Claimed files (do NOT modify them): ${claims.map((c) => c.file).join(', ')}`);
-    const evs = state.events.filter((e) => e.member === m.name && !['prompt', 'reply', 'attention'].includes(e.kind)).slice(-maxEvents);
+    const evs = state.events
+      .filter((e) => e.member === m.name && !['prompt', 'reply', 'attention'].includes(e.kind) && !(e.kind === 'note' && e.from !== 'ai'))
+      .slice(-maxEvents);
     if (evs.length) {
       lines.push('Recent activity:');
       for (const e of evs) lines.push(`- ${ago(e.ts, state.now)}: ${e.summary}`);
     }
   }
-  // Messages for you or for everyone (not your own), newest last.
-  const notes = state.events.filter((e) => e.kind === 'note' && e.member !== cfg.name && (!e.to || e.to === cfg.name)).slice(-5);
+  // Messages from other AIs for you or for every AI (not your own), newest last. The people's chat
+  // is for the humans only and never reaches an AI.
+  const notes = state.events.filter((e) => e.kind === 'note' && e.from === 'ai' && e.member !== cfg.name && (!e.to || e.to === cfg.name)).slice(-5);
   if (notes.length) {
-    lines.push('', 'Recent chat messages for you or the whole team:');
-    for (const n of notes) lines.push(`- ${n.member}${n.from === 'ai' ? "'s AI" : ''}${n.to ? ' (to you)' : ''}: ${n.summary}`);
+    lines.push('', "Recent messages in the AIs' chat for you or every AI:");
+    for (const n of notes) lines.push(`- ${n.member}'s AI${n.to ? ' (to you)' : ''}: ${n.summary}`);
   }
   lines.push(
     '',

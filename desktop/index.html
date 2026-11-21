@@ -168,7 +168,8 @@
     </div>
     <section id="panes" class="panes"></section>
 
-    <!-- Chat: people and their AIs. A message to someone also reaches their Claude at its next prompt. -->
+    <!-- Chat, in two rooms: "People" is for the humans only (the AIs never read it);
+         "AIs" is where the AIs talk to each other and send requests, and people watch. -->
     <aside id="chat" class="chat" hidden aria-label="Chat">
       <header class="chat-head">
         <div class="chat-head-top">
@@ -176,6 +177,10 @@
           <button id="chat-close" class="chat-close" title="Close the chat">Close</button>
         </div>
         <div id="chat-people" class="chat-people" aria-label="In the room"></div>
+        <div id="chat-tabs" class="chat-tabs" role="tablist" aria-label="Chat">
+          <button type="button" class="chat-tab" role="tab" data-tab="people" aria-selected="true">People</button>
+          <button type="button" class="chat-tab" role="tab" data-tab="ai" aria-selected="false">AIs</button>
+        </div>
       </header>
       <div id="chat-list" class="chat-list" aria-live="polite"></div>
       <form id="note-form" class="chat-form">
@@ -184,8 +189,9 @@
           <textarea id="note-text" rows="1" placeholder="Write a message" autocomplete="off"></textarea>
           <button type="submit" class="send">Send</button>
         </div>
-        <p class="compose-hint">Their AI reads the messages sent to them at its next prompt. Shift+Enter for a new line.</p>
+        <p class="compose-hint">Only people read this chat, not the AIs. Shift+Enter for a new line.</p>
       </form>
+      <p id="chat-ai-note" class="chat-ai-note" hidden>The AIs write here with codev_send_note: messages and requests between them. A message to one AI reaches it on its own, without anyone writing to it. To ask your AI something, write in its terminal.</p>
     </aside>
 
     <!-- History: every prompt, change, command and note of the room, from the local file. -->

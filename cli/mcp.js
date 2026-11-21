@@ -32,7 +32,7 @@ const TOOLS = [
   },
   {
     name: 'codev_send_note',
-    description: "Sends a note to a teammate (or the whole team): they see it on screen and their AI receives it. Useful to ask for a file or to announce an interface change.",
+    description: "Sends a message to a teammate's AI (or to every AI in the room) through the AIs' chat: it reaches that AI on its own, and people can watch. Useful to ask for a file, make a request, or announce an interface change.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -45,7 +45,7 @@ const TOOLS = [
   {
     name: 'codev_read_chat',
     description:
-      "Reads the room's chat: messages between people and AIs, and CoDev's alerts when it stopped an AI. Use it to catch up on decisions and requests from your teammates.",
+      "Reads the AIs' chat: messages and requests the AIs sent each other, and CoDev's alerts when it stopped an AI. Use it to catch up on what your teammates' AIs asked or decided. (The people's chat is private to the humans.)",
     inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'How many of the latest messages (default 40)' } } },
   },
   {
@@ -92,7 +92,7 @@ async function callTool(cfg, name, args = {}) {
       await api(cfg, 'note', { text: args.text, to: args.to || null, from: 'ai' });
       return `Note sent${args.to ? ` to ${args.to}` : ' to the team'}.`;
     case 'codev_read_chat': {
-      const msgs = (await roomHistory(cfg)).filter((e) => e.kind === 'note' || e.kind === 'conflict').slice(-(args.limit || 40));
+      const msgs = (await roomHistory(cfg)).filter((e) => (e.kind === 'note' && e.from === 'ai') || e.kind === 'conflict').slice(-(args.limit || 40));
       if (!msgs.length) return 'The chat is empty.';
       return `Chat of room "${cfg.room}" (oldest first):\n` + msgs.map(formatEntry).join('\n');
     }
@@ -102,6 +102,7 @@ async function callTool(cfg, name, args = {}) {
       const hits = (await roomHistory(cfg)).filter(
         (e) =>
           e.kind !== 'status' &&
+          !isPeopleChat(e) &&
           e.ts >= since &&
           (!args.person || e.member.toLowerCase().startsWith(String(args.person).toLowerCase())) &&
           (!args.kind || e.kind === args.kind) &&
@@ -118,6 +119,9 @@ async function callTool(cfg, name, args = {}) {
       throw Object.assign(new Error(`Unknown tool: ${name}`), { code: -32602 });
   }
 }
+
+/** A message of the people's chat: for the humans only, never shown to an AI. */
+const isPeopleChat = (e) => e.kind === 'note' && e.from !== 'ai';
 
 /**
  * The room's history as complete as this computer has it: what the server still keeps, plus the

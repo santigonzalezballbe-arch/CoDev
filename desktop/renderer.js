@@ -747,8 +747,54 @@ function onEvent(ev) {
     const who = `${ev.member}${ev.from === 'ai' ? "'s AI" : ''}`;
     if ($('#chat').hidden) flash(`${who}: ${ev.summary}`, 'info');
     notify(`Message from ${who}`, ev.summary);
+    if (ev.from === 'ai') queueForAI(ev);
   }
 }
+
+/* ---------- AI-to-AI notes: read without waiting for a prompt ---------- */
+// A note one AI sends to another is typed into the recipient's terminal as soon as it is free
+// (not working, not asking, nobody typing), so it reads it without its person having to write first.
+// Only notes addressed by name: a note to the whole team would wake every AI at once.
+// A cap per terminal stops two AIs from answering each other in an endless loop.
+const AUTO_NOTES_MAX = 6;
+const AUTO_NOTES_WINDOW = 10 * 60_000;
+
+function queueForAI(ev) {
+  if (!ev.to || WEB) return;
+  for (const p of S.panes.values()) {
+    if (!p.local || p.member !== ev.to || p.member === ev.member) continue;
+    (p.inbox ||= []).push(ev);
+  }
+}
+
+function deliverNotes() {
+  const now = Date.now();
+  for (const p of S.panes.values()) {
+    if (!p.local || !p.inbox?.length) continue;
+    if (!['waiting', 'sleeping'].includes(paneState(p))) continue;
+    if (now - (p.lastAutoNote || 0) < 3000) continue; // let it start the previous one
+    p.autoNotes = (p.autoNotes || []).filter((t) => now - t < AUTO_NOTES_WINDOW);
+    if (p.autoNotes.length >= AUTO_NOTES_MAX) {
+      if (!p.autoNotesWarned) flash(`${p.member} got many AI messages in a row: the next ones wait until you write to it.`, 'info');
+      p.autoNotesWarned = true;
+      p.inbox = []; // still in its context on the next prompt (the hook adds the latest notes)
+      continue;
+    }
+    p.autoNotesWarned = false;
+    const notes = p.inbox.splice(0);
+    p.autoNotes.push(now);
+    p.lastAutoNote = now;
+    const body = notes.map((n) => `${n.member}'s AI: ${n.summary}`).join(' | ');
+    const text =
+      `[CoDev] Message for you from ${body} ` +
+      '(Sent automatically by CoDev. Act on it if it asks for something; answer with codev_send_note only if a reply is needed, not just to acknowledge.)';
+    markTyping(p, '\r');
+    if (AGENTS[p.agent]?.engine === 'harness') api.ptyWrite(p.id, text.replace(/\s*\n\s*/g, ' '));
+    else api.ptyWrite(p.id, `\x1b[200~${text}\x1b[201~`);
+    setTimeout(() => api.ptyWrite(p.id, '\r'), 40);
+  }
+}
+setInterval(deliverNotes, 1500);
 
 const isMe = (name) => name === S.cfg.name || isMine(name);
 /** A chat message you did not type yourself: from a teammate, or from any AI (your own other terminals included). */
@@ -779,10 +825,15 @@ function notify(title, body) {
 }
 
 /* ---------- Chat ---------- */
+// Two rooms in one panel: "people" (humans only; the AIs never read it) and "ai" (notes the AIs
+// send each other with codev_send_note, plus CoDev's alerts when it stopped an AI).
 const chatKeys = new Set();
 S.chat = [];
-let unread = 0;
-let lastSender = null;
+S.chatTab = 'people';
+const unread = { people: 0, ai: 0 };
+const lastSender = { people: null, ai: null };
+const chatTabOf = (ev) => (ev.kind === 'conflict' || ev.from === 'ai' ? 'ai' : 'people');
+const unreadTotal = () => unread.people + unread.ai;
 
 /** A short pulse on the Chat button when a message arrives with the chat closed. */
 function pingChatButton() {
@@ -795,6 +846,7 @@ function pingChatButton() {
 function setupChat() {
   $('#chat-btn').addEventListener('click', () => ($('#chat').hidden ? openChat() : closeChat()));
   $('#chat-close').addEventListener('click', closeChat);
+  for (const tab of document.querySelectorAll('.chat-tab')) tab.addEventListener('click', () => showChatTab(tab.dataset.tab));
   $('#note-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const text = $('#note-text').value.trim();
@@ -836,24 +888,33 @@ function addChat(events, live) {
     if (chatKeys.has(key)) continue;
     chatKeys.add(key);
     S.chat.push(ev);
-    if (live && notFromMe(ev)) {
+    const tab = chatTabOf(ev);
+    // Unread: the chat is closed, or the message landed in the other tab.
+    if (live && notFromMe(ev) && ($('#chat').hidden || S.chatTab !== tab)) {
       fresh++;
-      lastSender = ev.member;
+      unread[tab]++;
+      lastSender[tab] = ev.member;
     }
   }
   S.chat.sort((a, b) => a.ts - b.ts);
-  if (fresh && $('#chat').hidden) {
-    unread += fresh;
-    pingChatButton();
-  }
+  if (fresh && $('#chat').hidden) pingChatButton();
   renderChat();
 }
 
 function openChat() {
   $('#chat').hidden = false;
-  unread = 0;
+  // Open where the news is: the people tab unless only the AIs wrote.
+  if (!unread[S.chatTab] && unread[S.chatTab === 'ai' ? 'people' : 'ai']) S.chatTab = S.chatTab === 'ai' ? 'people' : 'ai';
+  showChatTab(S.chatTab);
+}
+
+function showChatTab(tab) {
+  S.chatTab = tab === 'ai' ? 'ai' : 'people';
+  unread[S.chatTab] = 0;
+  const list = $('#chat-list');
+  delete list.dataset.seen; // jump to the latest message of this tab
   renderChat();
-  $('#note-text').focus();
+  if (S.chatTab === 'people' && !$('#chat').hidden) $('#note-text').focus();
 }
 
 function closeChat() {
@@ -889,28 +950,46 @@ function miniBot(name) {
 
 function renderChat() {
   const btn = $('#chat-btn');
-  if (unread) {
-    const badge = h('span', { class: 'chat-badge' }, unread > 99 ? '99+' : String(unread));
-    if (lastSender) badge.style.setProperty('--person', colorOf(lastSender));
+  const total = unreadTotal();
+  if (total) {
+    const badge = h('span', { class: 'chat-badge' }, total > 99 ? '99+' : String(total));
+    const from = lastSender.people || lastSender.ai;
+    if (from) badge.style.setProperty('--person', colorOf(from));
     btn.replaceChildren('Chat', badge);
-    btn.title = `${unread} new message${unread === 1 ? '' : 's'}`;
+    btn.title = `${total} new message${total === 1 ? '' : 's'}`;
   } else {
     btn.replaceChildren('Chat');
     btn.title = '';
   }
-  btn.classList.toggle('unread', unread > 0);
+  btn.classList.toggle('unread', total > 0);
   if ($('#chat').hidden) return;
   renderChatPeople();
+  const aiTab = S.chatTab === 'ai';
+  for (const tab of document.querySelectorAll('.chat-tab')) {
+    const name = tab.dataset.tab;
+    tab.setAttribute('aria-selected', String(name === S.chatTab));
+    const n = unread[name];
+    const count = n ? h('span', { class: 'tab-count' }, n > 99 ? '99+' : String(n)) : null;
+    if (count && lastSender[name]) count.style.setProperty('--person', colorOf(lastSender[name]));
+    tab.replaceChildren(name === 'ai' ? 'AIs' : 'People', ...(count ? [count] : []));
+  }
+  $('#note-form').hidden = aiTab;
+  $('#chat-ai-note').hidden = !aiTab;
+  const shown = S.chat.filter((m) => chatTabOf(m) === S.chatTab);
   const list = $('#chat-list');
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
-  if (!S.chat.length) {
-    list.replaceChildren(h('p', { class: 'chat-empty' }, 'No messages yet. Write to the whole team or to one person: their AI reads the messages sent to them at its next prompt.'));
+  if (!shown.length) {
+    list.replaceChildren(
+      h('p', { class: 'chat-empty' }, aiTab
+        ? 'The AIs have not written to each other yet. When one sends another a message or a request, it shows up here.'
+        : 'No messages yet. Write to the whole team or to one person. Only people read this chat.')
+    );
     return;
   }
   const out = [];
   let day = '';
   let group = null;
-  for (const m of S.chat.slice(-500)) {
+  for (const m of shown.slice(-500)) {
     const d = new Date(m.ts);
     const label = d.toDateString() === new Date().toDateString() ? 'Today' : d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
     if (label !== day) {
@@ -945,8 +1024,9 @@ function renderChat() {
     group.el.append(h('p', { class: 'bubble', title: d.toLocaleString() }, m.summary));
   }
   list.replaceChildren(...out);
-  if (atBottom || list.dataset.seen !== String(S.chat.length)) list.scrollTop = list.scrollHeight;
-  list.dataset.seen = String(S.chat.length);
+  const seen = `${S.chatTab}:${shown.length}`;
+  if (atBottom || list.dataset.seen !== seen) list.scrollTop = list.scrollHeight;
+  list.dataset.seen = seen;
 }
 
 /* ---------- Terminal relay (WebSocket) ---------- */
