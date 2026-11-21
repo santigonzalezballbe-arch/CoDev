@@ -257,6 +257,11 @@ function cleanEnv() {
 /* ---------- AIs: which ones are installed, keys, local models ---------- */
 // API keys are encrypted with the system keychain (safeStorage) and never reach the UI.
 const keysFile = () => path.join(app.getPath('userData'), 'keys.json');
+/** On Linux, safeStorage can fall back to `basic_text` (a hardcoded key) and still report
+ * encryption as available. The README promises not to save a key in that case. */
+const hasSecureStorage = () =>
+  safeStorage.isEncryptionAvailable() &&
+  (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
 function readKeys() {
   try {
     return JSON.parse(fs.readFileSync(keysFile(), 'utf8'));
@@ -277,13 +282,42 @@ ipcMain.handle('agent-key-set', (_e, agent, key) => {
   const a = AGENTS[agent];
   if (!a?.needsKey) throw new Error('That AI does not take an API key.');
   // No keychain, no key: CoDev never writes an API key in plain text.
-  if (!safeStorage.isEncryptionAvailable()) throw new Error('This system has no keychain available, so CoDev cannot save the key encrypted.');
+  if (!hasSecureStorage()) throw new Error('This system has no keychain available, so CoDev cannot save the key encrypted.');
   const keys = readKeys();
   if (key) keys[agent] = safeStorage.encryptString(String(key).trim()).toString('base64');
   else delete keys[agent];
   fs.mkdirSync(path.dirname(keysFile()), { recursive: true });
   fs.writeFileSync(keysFile(), JSON.stringify(keys), { mode: 0o600 });
+  balanceCache.delete(agent);
   return true;
+});
+
+/** What is left on the DeepSeek account (GET /user/balance). The key stays here; the UI gets only the amounts.
+ * Cached for a minute, so several DeepSeek terminals do not each ask the API. */
+const balanceCache = new Map();
+ipcMain.handle('agent-balance', async (_e, agent, fresh = false) => {
+  if (agent !== 'deepseek') return null;
+  const cached = balanceCache.get(agent);
+  if (cached && Date.now() - cached.at < (fresh ? 10_000 : 60_000)) return cached.value;
+  const key = getKey(agent);
+  if (!key) return { error: 'no key' };
+  let value;
+  try {
+    const res = await fetch('https://api.deepseek.com/user/balance', {
+      headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error(res.status === 401 ? 'invalid key' : `HTTP ${res.status}`);
+    const data = await res.json();
+    value = {
+      available: data.is_available !== false,
+      balances: (data.balance_infos || []).map((b) => ({ currency: b.currency, total: Number(b.total_balance) })),
+    };
+  } catch (err) {
+    value = { error: err.name === 'TimeoutError' ? 'timeout' : err.message };
+  }
+  balanceCache.set(agent, { at: Date.now(), value });
+  return value;
 });
 
 const findCommand = (PATH, command) => PATH.split(path.delimiter).map((d) => path.join(d, command)).find((f) => fs.existsSync(f));
@@ -313,7 +347,7 @@ ipcMain.handle('agents-info', async () => {
     installed: { claude: !!findCommand(PATH, 'claude'), codex: !!findCommand(PATH, 'codex'), dsh: !!findDsh(PATH) },
     hasKey: { deepseek: !!getKey('deepseek') },
     ollama: await ollamaModels(),
-    secureStorage: safeStorage.isEncryptionAvailable(),
+    secureStorage: hasSecureStorage(),
   };
 });
 

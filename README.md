@@ -10,6 +10,8 @@ CoDev fixes this with three pieces:
 2. **Your AI knows what your teammate's AI is doing.** Before every prompt, CoDev adds a summary of the team's work to your AI's context: tasks, claimed files, recent activity and notes.
 3. **File locking.** When an AI edits a file, it claims it. If another AI tries to edit that file, CoDev blocks the edit and tells it who is working there and on what. Claude Code and Codex enforce this before the edit; the Harness uses the same claim tools through MCP (so it is advisory there for now). The AIs can also ask each other for things with notes.
 
+<a id="desktop-app-recommended"></a>
+
 ## Install
 
 Download the installer for your system from the **[latest release](https://github.com/santigonzalezballbe-arch/CoDev/releases/latest)**:
@@ -119,7 +121,7 @@ Only allow people you trust: the guest's Claude Code can run commands on the hos
 - `desktop/`: the Electron app. `main.js` runs the PTYs, the Harness bridge and Codex, keeps the AI keys in the system keychain, clones repositories, hosts the server and opens the tunnel. `agents.js` says which engine each AI uses (Claude Code for Claude, the DeepSeek Harness for DeepSeek and local models, Codex for ChatGPT). `cloudflared.js` finds or downloads cloudflared. `history.js` writes the local history file. `renderer.js` holds the xterm.js terminals, the relay, the headers, the four characters and the history panel.
 - `server/`: REST API, WebSocket (`terminals.js`: terminals, the AI each one runs, and room events) and the browser view, which is the desktop UI itself served from `desktop/`.
 - `cli/`: the `codev` command. It includes the Claude Code/Codex hooks, the MCP server, `harness.js` (the ACP terminal for the DeepSeek Harness), `init`, `watch` and `status`.
-- `test/`: end-to-end tests with the real server, hooks, MCP server and terminal relay, plus the start-up of each AI.
+- `test/`: end-to-end tests with the real server, hooks, MCP server and terminal relay, plus how each AI is started.
 
 **How a terminal is relayed:** the app sends the PTY output once xterm.js has processed it. Every 3 seconds it also sends a snapshot of the screen (`@xterm/addon-serialize`). The server keeps the latest snapshot and the chunks after it, so whoever connects late sees the exact screen. Only the owner can publish to their own terminal.
 
@@ -205,7 +207,7 @@ npm run dist:linux   # AppImage and .deb, in dist/
 npm run dist         # the installers for the system you are on
 ```
 
-Windows and macOS installers have to be built on those systems. GitHub does it for you: pushing a tag like `v0.2.0` runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds the three systems' installers and publishes them as a release.
+Windows and macOS installers have to be built on those systems. GitHub does it for you: pushing a tag like `v0.4.0` runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds the three systems' installers and publishes them as a release.
 
 How the packaged app runs the CLI: there is no separate Node.js, so the app copies the CLI (and the small ACP SDK used by the Harness bridge) to its data folder (`runtime/<version>/`) and the hooks, the MCP server and the bridge run it with the app's own binary as Node (`ELECTRON_RUN_AS_NODE=1`). An AppImage is run through its own file, which does not move between launches. Invite links (`codev://`) are registered by the installer (Windows, macOS, `.deb`) or by the app itself (AppImage, and from source on Linux).
 

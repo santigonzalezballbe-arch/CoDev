@@ -731,7 +731,7 @@ const isMine = (member) => [...S.panes.values()].some((p) => p.local && p.member
 function onEvent(ev) {
   if (ev.kind === 'conflict') (S.blockedAt ||= new Map()).set(ev.member, Date.now());
   if (ev.kind === 'note' || ev.kind === 'conflict') addChat([ev], true);
-  const forMe = ev.kind === 'note' && !isMe(ev.member) && (!ev.to || isMe(ev.to));
+  const forMe = ev.kind === 'note' && notFromMe(ev) && (!ev.to || isMe(ev.to));
   const myConflict = ev.kind === 'conflict' && (isMe(ev.member) || isMe(ev.owner));
   if (myConflict) {
     const text = isMe(ev.member)
@@ -747,6 +747,8 @@ function onEvent(ev) {
 }
 
 const isMe = (name) => name === S.cfg.name || isMine(name);
+/** A chat message you did not type yourself: from a teammate, or from any AI (your own other terminals included). */
+const notFromMe = (ev) => ev.from === 'ai' || !isMe(ev.member);
 
 // Same list and hash as server/rooms.js: the server gives everyone in a room a different colour;
 // names that are no longer in the room (old history) fall back to the colour of their name.
@@ -776,6 +778,15 @@ function notify(title, body) {
 const chatKeys = new Set();
 S.chat = [];
 let unread = 0;
+let lastSender = null;
+
+/** A short pulse on the Chat button when a message arrives with the chat closed. */
+function pingChatButton() {
+  const btn = $('#chat-btn');
+  btn.classList.remove('ping');
+  void btn.offsetWidth; // restart the animation
+  btn.classList.add('ping');
+}
 
 function setupChat() {
   $('#chat-btn').addEventListener('click', () => ($('#chat').hidden ? openChat() : closeChat()));
@@ -821,10 +832,16 @@ function addChat(events, live) {
     if (chatKeys.has(key)) continue;
     chatKeys.add(key);
     S.chat.push(ev);
-    if (live && !isMe(ev.member)) fresh++;
+    if (live && notFromMe(ev)) {
+      fresh++;
+      lastSender = ev.member;
+    }
   }
   S.chat.sort((a, b) => a.ts - b.ts);
-  if (fresh && $('#chat').hidden) unread += fresh;
+  if (fresh && $('#chat').hidden) {
+    unread += fresh;
+    pingChatButton();
+  }
   renderChat();
 }
 
@@ -868,7 +885,15 @@ function miniBot(name) {
 
 function renderChat() {
   const btn = $('#chat-btn');
-  btn.textContent = unread ? `Chat · ${unread} new` : 'Chat';
+  if (unread) {
+    const badge = h('span', { class: 'chat-badge' }, unread > 99 ? '99+' : String(unread));
+    if (lastSender) badge.style.setProperty('--person', colorOf(lastSender));
+    btn.replaceChildren('Chat', badge);
+    btn.title = `${unread} new message${unread === 1 ? '' : 's'}`;
+  } else {
+    btn.replaceChildren('Chat');
+    btn.title = '';
+  }
   btn.classList.toggle('unread', unread > 0);
   if ($('#chat').hidden) return;
   renderChatPeople();
@@ -1748,12 +1773,14 @@ function buildHead(p) {
     state: h('span', { class: 'who-state' }),
     intent: h('div', { class: 'intent' }),
     files: h('div', { class: 'files' }),
+    // What is left on the DeepSeek account: only on your own DeepSeek terminals (the key is yours).
+    balance: p.local && !WEB && p.agent === 'deepseek' ? h('span', { class: 'who-balance', hidden: true }) : null,
     sideEl: h('div', { class: 'head-side' }),
     side: null,
   };
   p.head.append(
     p.ui.bot,
-    h('div', { class: 'who-main' }, h('div', { class: 'who-line' }, p.ui.name, p.ui.label, p.ui.ai, p.ui.state), p.ui.intent, p.ui.files),
+    h('div', { class: 'who-main' }, h('div', { class: 'who-line' }, p.ui.name, p.ui.label, p.ui.ai, p.ui.balance, p.ui.state), p.ui.intent, p.ui.files),
     p.ui.sideEl
   );
 }
@@ -1790,6 +1817,8 @@ function updateHead(p) {
   const m = S.members.get(p.member);
   const st = paneState(p);
   if (p.state !== st) {
+    // A DeepSeek turn just ended: that is when the balance changes.
+    if (p.ui.balance && p.state === 'working') refreshBalance(true);
     p.state = st;
     p.head.className = `pane-head st-${st}`;
     p.ui.state.textContent = p.local && st !== 'offline' ? `${STATE_LABEL[st]} · you` : STATE_LABEL[st];
@@ -1808,6 +1837,49 @@ function updateHead(p) {
     p.ui.files.replaceChildren('Holding ', h('strong', {}, files.join(', ')));
     p.ui.files.title = files.join('\n');
   }
+  if (p.ui.balance) updateBalance(p);
+}
+
+/* ---------- DeepSeek balance ---------- */
+const BALANCE = { value: null, at: 0, loading: null };
+const CURRENCY = { CNY: '¥', USD: '$' };
+
+function refreshBalance(fresh = false) {
+  if (WEB || !api.agentBalance || BALANCE.loading) return;
+  if (!fresh && BALANCE.at && Date.now() - BALANCE.at < 60_000) return;
+  BALANCE.loading = api
+    .agentBalance('deepseek', fresh)
+    .then((v) => (BALANCE.value = v))
+    .catch((err) => (BALANCE.value = { error: err.message }))
+    .finally(() => {
+      BALANCE.at = Date.now();
+      BALANCE.loading = null;
+    });
+}
+
+function updateBalance(p) {
+  refreshBalance();
+  const v = BALANCE.value;
+  let text = '';
+  let title = '';
+  let low = false;
+  if (v?.error) {
+    text = 'Balance ?';
+    title = v.error === 'no key' ? 'No DeepSeek API key saved.' : `Could not read the DeepSeek balance: ${v.error}`;
+  } else if (v?.balances?.length) {
+    text = v.balances.map((b) => `${CURRENCY[b.currency] ?? `${b.currency} `}${b.total.toFixed(2)}`).join(' · ') + ' left';
+    low = !v.available || v.balances.every((b) => b.total < 1);
+    title = v.available ? 'What is left on your DeepSeek account. Updated every minute and after each turn.' : 'Your DeepSeek account has no balance left: top it up to keep using it.';
+  } else if (v && !v.available) {
+    text = 'No balance';
+    low = true;
+    title = 'Your DeepSeek account has no balance left: top it up to keep using it.';
+  }
+  const el = p.ui.balance;
+  if (el.textContent !== text) el.textContent = text;
+  el.title = title;
+  el.hidden = !text;
+  el.classList.toggle('low', low);
 }
 
 function renderHeads() {

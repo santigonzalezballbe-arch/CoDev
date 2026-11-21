@@ -1,0 +1,21 @@
+## 2026-11-21 22:39
+
+Petición: comprobar si el README está actualizado respecto al código.
+
+Revisado el README completo contra el código en `v0.2.0` (CLI, hooks, MCP, servidor, app de escritorio, web, invitados y workflows). Todo coincide: comandos, tabla de hooks, herramientas MCP, archivos de arquitectura, instaladores, túnel de Cloudflare, historial local y limitaciones.
+
+Cambio: en `README.md` añadido el ancla `<a id="desktop-app-recommended"></a>` antes de `## Install`. La UI (`desktop/index.html`) todavía enlaza a `#desktop-app-recommended`, un ancla que desapareció al renombrar la sección en el último commit; ahora el enlace vuelve a funcionar sin tocar la interfaz.
+
+Pendiente: decidir si se corrigen dos restos ajenos al README: `cli/mcp.js` anuncia `serverInfo.version: '0.1.0'` y `package.json` conserva el script `demo` apuntando a `scripts/demo.js`, que no existe.
+
+## 2026-11-21 22:48
+
+Petición: "seguro??" después de que Santi subiera los cambios a GitHub.
+
+Actualizado el checkout local a `origin/main` (`1f96a7b`, versión `0.4.0`, 6 commits nuevos) y revisado el README nuevo contra ese código: cuatro IAs (Claude Code, DeepSeek Harness, Ollama local y Codex), instaladores, hooks, MCP, arquitectura y limitaciones.
+
+Cambios: en `README.md`, restaurado el ancla `<a id="desktop-app-recommended"></a>` y actualizado el ejemplo de tag `v0.2.0` a `v0.4.0`; la frase de tests ahora dice "cómo arranca cada IA" en vez de "el arranque de cada IA". En `desktop/main.js`, la comprobación de keychain ahora rechaza el backend `basic_text` de Linux, que Electron considera disponible aunque cifre con una clave fija; así se cumple lo que ya prometían el README y la UI.
+
+Verificado: el release `v0.4.0` existe con los cuatro instaladores; `npm test` pasa 32/32 (con las variables `CODEV_*` del entorno vacías; sin eso los e2e detectan este proyecto como si fuera la sala).
+
+Pendiente: `cli/mcp.js` sigue anunciando `serverInfo.version: '0.1.0'` y `package.json` mantiene `demo` sin `scripts/demo.js`. Sin commit todavía.
