@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { startServer } from '../server/server.js';
-import { setupProject } from '../cli/init.js';
+import { setupProject, useRunner } from '../cli/init.js';
 import { ensureCloudflared } from './cloudflared.js';
 import { History } from './history.js';
 
@@ -431,6 +431,26 @@ const guestHooks = {
   },
 };
 
+/* ---------- Packaged app: a stable copy of the CLI for the hooks and the MCP server ---------- */
+// Inside a package the CLI lives in app.asar (and in an AppImage, under a mount path that changes on
+// every launch). Claude Code runs the hooks on its own, even when CoDev is closed, so they need a path
+// that stays put: we copy the CLI to the user data folder and run it with this app's own binary as
+// Node. An AppImage is run through its own file ($APPIMAGE), which does not move.
+function prepareRuntime() {
+  if (!app.isPackaged) return;
+  const dir = path.join(app.getPath('userData'), 'runtime', app.getVersion());
+  const copy = (from, to) => {
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.writeFileSync(to, fs.readFileSync(from));
+  };
+  if (!fs.existsSync(path.join(dir, 'cli', 'codev.js'))) {
+    for (const f of fs.readdirSync(path.join(APP_DIR, 'cli'))) if (f.endsWith('.js')) copy(path.join(APP_DIR, 'cli', f), path.join(dir, 'cli', f));
+    copy(path.join(APP_DIR, 'desktop', 'history.js'), path.join(dir, 'desktop', 'history.js'));
+    fs.writeFileSync(path.join(dir, 'package.json'), '{ "type": "module" }\n');
+  }
+  useRunner({ exe: process.env.APPIMAGE || process.execPath, cli: path.join(dir, 'cli', 'codev.js'), env: { ELECTRON_RUN_AS_NODE: '1' } });
+}
+
 /* ---------- Invite links: codev://join?server=…&room=…&key=… ---------- */
 const APP_DIR = path.join(DIR, '..');
 let pendingLink = null;
@@ -468,24 +488,33 @@ ipcMain.handle('pending-link', () => {
  * installer; while running from source on Linux we write a small .desktop file for the scheme.
  */
 function registerProtocol() {
-  if (process.platform === 'linux' && !app.isPackaged) {
+  if (process.platform === 'linux') {
+    // From source, or from an AppImage (which installs nothing), we write the .desktop entry
+    // for the scheme ourselves. The .deb package ships its own entry; we only make it the default.
+    const appImage = app.isPackaged && process.env.APPIMAGE;
+    if (app.isPackaged && !appImage) {
+      execFile('xdg-mime', ['default', 'codev.desktop', 'x-scheme-handler/codev'], () => {});
+      return;
+    }
     try {
       const dir = path.join(os.homedir(), '.local', 'share', 'applications');
-      const file = path.join(dir, 'codev-dev.desktop');
+      const name = appImage ? 'codev-appimage.desktop' : 'codev-dev.desktop';
+      const exec = appImage ? `"${appImage}" %u` : `"${process.execPath}" "${APP_DIR}" %u`;
       const entry = [
         '[Desktop Entry]',
         'Type=Application',
         'Name=CoDev',
         'Comment=Code as a team with AI without stepping on each other',
-        `Exec="${process.execPath}" "${APP_DIR}" %u`,
+        `Exec=${exec}`,
         'Terminal=false',
         'NoDisplay=true',
         'MimeType=x-scheme-handler/codev;',
         '',
       ].join('\n');
       fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, name);
       if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== entry) fs.writeFileSync(file, entry);
-      execFile('xdg-mime', ['default', 'codev-dev.desktop', 'x-scheme-handler/codev'], () => {});
+      execFile('xdg-mime', ['default', name, 'x-scheme-handler/codev'], () => {});
     } catch {}
   } else if (app.isPackaged) {
     app.setAsDefaultProtocolClient('codev');
@@ -507,6 +536,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
+    prepareRuntime();
     registerProtocol();
     createWindow();
   });

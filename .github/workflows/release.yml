@@ -1,0 +1,73 @@
+name: Release
+
+# Push a tag like v0.2.0 to build the installers on Linux, Windows and macOS
+# and publish them as a GitHub release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        if: runner.os == 'Linux'
+      # Unsigned builds: CoDev is free and has no signing certificates (see the README).
+      - run: npx electron-builder --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ runner.os }}
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.exe
+            dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > notes.md <<NOTES
+          ## Install
+
+          | System | File |
+          |---|---|
+          | Linux (any) | \`CoDev-*.AppImage\`: make it executable (\`chmod +x\`) and open it |
+          | Ubuntu / Debian | \`CoDev-*.deb\`: \`sudo apt install ./CoDev-*.deb\` |
+          | Windows | \`CoDev-Setup-*.exe\` |
+          | macOS (Apple silicon) | \`CoDev-*-arm64.dmg\` |
+
+          You also need [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and signed in.
+
+          **The installers are not signed** (CoDev is free and has no signing certificates):
+          - Windows shows "Windows protected your PC": click **More info**, then **Run anyway**.
+          - macOS says the app cannot be checked: right-click CoDev in Applications, choose **Open**, then **Open** again (once).
+          NOTES
+          gh release create "$TAG" installers/* --repo "$GITHUB_REPOSITORY" --title "CoDev $TAG" --notes-file notes.md

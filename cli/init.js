@@ -6,6 +6,19 @@ import { fileURLToPath } from 'node:url';
 import { CONFIG_FILE } from './config.js';
 
 const CLI_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'codev.js');
+
+/**
+ * How the hooks and the MCP server run the CLI. From source: `node cli/codev.js`. The packaged app
+ * has no separate Node, so it runs its own binary as Node (ELECTRON_RUN_AS_NODE=1) on a copy of the
+ * CLI kept at a stable path (see desktop/main.js).
+ */
+let RUNNER = { exe: null, cli: CLI_PATH, env: {} };
+export function useRunner(runner) {
+  RUNNER = { env: {}, ...runner };
+}
+const quote = (s) => `"${String(s).replace(/\\/g, '/')}"`;
+const envPrefix = () => Object.entries(RUNNER.env).map(([k, v]) => `${k}=${v} `).join('');
+const hookCommand = () => `${envPrefix()}${RUNNER.exe ? quote(RUNNER.exe) : 'node'} ${quote(RUNNER.cli)} hook`;
 const HOOK_EVENTS = {
   SessionStart: null,
   UserPromptSubmit: null,
@@ -30,7 +43,7 @@ export function installHooks(root) {
   const file = path.join(root, '.claude', 'settings.local.json');
   const settings = readJson(file);
   settings.hooks ||= {};
-  const command = `node "${CLI_PATH}" hook`;
+  const command = hookCommand();
   for (const [event, matcher] of Object.entries(HOOK_EVENTS)) {
     // Remove earlier CoDev installs and leave the user's own hooks untouched.
     const groups = (settings.hooks[event] || [])
@@ -58,7 +71,12 @@ function installMcp(root, env = process.env) {
     execFileSync('claude', ['mcp', 'remove', '--scope', 'local', 'codev'], { cwd: root, stdio: 'ignore', env });
   } catch {}
   try {
-    execFileSync('claude', ['mcp', 'add', '--scope', 'local', 'codev', '--', 'node', CLI_PATH, 'mcp'], { cwd: root, stdio: 'ignore', env });
+    const envArgs = Object.entries(RUNNER.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
+    execFileSync('claude', ['mcp', 'add', '--scope', 'local', 'codev', ...envArgs, '--', RUNNER.exe || 'node', RUNNER.cli, 'mcp'], {
+      cwd: root,
+      stdio: 'ignore',
+      env,
+    });
     return true;
   } catch {
     return false;

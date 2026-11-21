@@ -10,12 +10,35 @@ CoDev fixes this with three pieces:
 2. **Your AI knows what your teammate's AI is doing.** Before every prompt, CoDev adds a summary of the team's work to your AI's context: tasks, claimed files, recent activity and notes.
 3. **File locking.** When an AI edits a file, it claims it. If another AI tries to edit that file, CoDev blocks the edit and tells it who is working there and on what. The AIs can also ask each other for things with notes.
 
-## Desktop app (recommended)
+## Install
+
+Download the installer for your system from the **[latest release](https://github.com/santigonzalezballbe-arch/CoDev/releases/latest)**:
+
+| System | File | How |
+|---|---|---|
+| Linux (any distribution) | `CoDev-<version>-x86_64.AppImage` | `chmod +x CoDev-*.AppImage`, then open it. Nothing is installed. |
+| Ubuntu, Debian and derivatives | `CoDev-<version>-amd64.deb` | `sudo apt install ./CoDev-*.deb`, then open CoDev from your apps menu. |
+| Windows | `CoDev-Setup-<version>.exe` | Run it and follow the steps. |
+| macOS (Apple silicon) | `CoDev-<version>-arm64.dmg` | Open it and drag CoDev to Applications. |
+
+You also need **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** installed and signed in: CoDev opens it for you, but does not include it.
+
+**The installers are not signed.** CoDev is free and open source and has no paid signing certificates, so the first time:
+- **Windows** shows "Windows protected your PC": click **More info**, then **Run anyway**.
+- **macOS** says it cannot check the app: in Applications, right-click CoDev, choose **Open**, then **Open** again. Only once.
+
+Everything else comes with the app: you do not need Node.js, and the tool for sharing online is downloaded the first time you use it.
+
+### From source
 
 ```bash
+git clone https://github.com/santigonzalezballbe-arch/CoDev.git
+cd CoDev
 npm install          # Electron, xterm.js and the PTY (also downloads the Electron binary)
 npm run app
 ```
+
+## Using the app
 
 1. Write **your name** and choose **where you will work**: a **GitHub repository** (it suggests your repositories if you are signed in with `gh`, or paste any URL) or a **local folder**.
 2. Choose **Create a room** if your computer will be the server, and who can join: **Same network** or **Anyone with the invite** (over the internet, see below). Or choose **Join a room** and paste the invite your teammate sent you: it fills in the server, the room and the key. If the room already has a repository, the app detects it and clones it for you into `~/CoDev/<name>`.
@@ -37,6 +60,16 @@ What you will find:
 - **History**: every prompt (in full), change (with its diff), command, note and conflict in the room, grouped by day, with search and filters by person and kind. The app saves it to `.codev/history.jsonl` in the project folder: one JSON object per line, kept across restarts, git-ignored, easy to grep or import. **Show the file** opens its folder. A browser shows the room's recent activity only.
 
 If port 4321 is taken, the app uses the next free one.
+
+### Teammates on another network
+
+Choose **Anyone with the invite** when you create the room (or press **Share online** later). The app opens a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/), waits until the public address answers, and the **Invite** button then copies a link like `https://random-words.trycloudflare.com/?room=…&key=…`. No account, no router setup and no server costs are needed. The address changes every time, and your computer has to stay on.
+
+The tunnel runs on [`cloudflared`](https://github.com/cloudflare/cloudflared) (Apache 2.0). If you already have it installed, CoDev uses yours. Otherwise, the first time you share online the app downloads it from Cloudflare's GitHub releases into its own data folder (about 40 MB, a few seconds). The version and the SHA-256 of each file are pinned in `desktop/cloudflared.js`, and a download that does not match is thrown away.
+
+**Every room the app creates is locked with a random key.** Without it, the server answers nothing: no state, no activity, no terminals. The key travels inside the invite, so send the invite only to your teammates. The terminals can show private code or secrets, and anyone with the invite can watch them.
+
+Room events and terminals travel over a single WebSocket, which passes through the tunnel as it is.
 
 ### From a browser
 
@@ -141,6 +174,17 @@ If the server does not answer, the hooks do nothing: CoDev never blocks your wor
 
 Without hooks, edits cannot be blocked, but `codev watch` publishes every disk change to the room and flags a conflict if you touch a file claimed by someone else. If the tool supports MCP, you can register `node cli/codev.js mcp` in it.
 
+## Building the installers
+
+```bash
+npm run dist:linux   # AppImage and .deb, in dist/
+npm run dist         # the installers for the system you are on
+```
+
+Windows and macOS installers have to be built on those systems. GitHub does it for you: pushing a tag like `v0.2.0` runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds the three systems' installers and publishes them as a release.
+
+How the packaged app runs the hooks: there is no separate Node.js, so the app copies the CLI to its data folder (`runtime/<version>/`) and the hooks and MCP server run it with the app's own binary as Node (`ELECTRON_RUN_AS_NODE=1`). An AppImage is run through its own file, which does not move between launches. Invite links (`codev://`) are registered by the installer (Windows, macOS, `.deb`) or by the app itself (AppImage, and from source on Linux).
+
 ## Tests
 
 ```bash
@@ -162,7 +206,6 @@ npm test
 - Persistence and user accounts (per-person access, revoking an invite).
 - Git integration: see each person's branch and warn about conflicts before merging.
 - Locking per symbol or function instead of per file.
-- Package the app (AppImage / .deb / .dmg / .exe) with electron-builder.
 - Let an owner hand control of their terminal to a teammate.
 - Connectors for more agents (Cursor, Codex, Gemini CLI...).
 

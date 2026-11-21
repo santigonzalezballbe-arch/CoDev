@@ -1,6 +1,6 @@
 {
   "name": "codev",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Code as a team with AI without stepping on each other: Claude Code terminals side by side, live, with file locking between agents.",
   "type": "module",
   "bin": {
@@ -11,7 +11,9 @@
     "start": "node cli/codev.js server",
     "demo": "node scripts/demo.js",
     "test": "node --test test/*.test.js",
-    "postinstall": "node node_modules/electron/install.js"
+    "postinstall": "node node_modules/electron/install.js",
+    "dist": "electron-builder --publish never",
+    "dist:linux": "electron-builder --linux AppImage deb --publish never"
   },
   "engines": {
     "node": ">=20"
@@ -29,7 +31,8 @@
     "ws": "^8.23.0"
   },
   "devDependencies": {
-    "electron": "^45.4.1"
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
   },
   "main": "desktop/main.js",
   "repository": {
@@ -39,5 +42,63 @@
   "homepage": "https://github.com/santigonzalezballbe-arch/CoDev#readme",
   "bugs": {
     "url": "https://github.com/santigonzalezballbe-arch/CoDev/issues"
-  }
+  },
+  "author": {
+    "name": "CoDev contributors",
+    "email": "santigonzalezballbe-arch@users.noreply.github.com"
+  },
+  "build": {
+    "appId": "dev.codev.app",
+    "productName": "CoDev",
+    "executableName": "codev",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "desktop/**",
+      "server/**",
+      "cli/**",
+      "package.json"
+    ],
+    "protocols": [
+      {
+        "name": "CoDev invite",
+        "schemes": [
+          "codev"
+        ]
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "build/icon.png",
+      "synopsis": "Code as a team with AI without stepping on each other",
+      "artifactName": "CoDev-${version}-${arch}.${ext}",
+      "syncDesktopName": true
+    },
+    "deb": {
+      "packageName": "codev"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png",
+      "artifactName": "CoDev-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "identity": null,
+      "artifactName": "CoDev-${version}-${arch}.${ext}"
+    }
+  },
+  "desktopName": "codev.desktop"
 }
