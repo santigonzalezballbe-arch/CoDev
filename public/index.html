@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ca">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CoDev</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='14' height='28' x='1' y='2' rx='3' fill='%237c9cff'/><rect width='14' height='28' x='17' y='2' rx='3' fill='%23ff8a65'/></svg>" />
+</head>
+<body>
+  <!-- Pantalla d'entrada -->
+  <main id="join" class="join" hidden>
+    <form id="join-form" class="join-card">
+      <div class="brand big"><span class="logo"><i></i><i></i></span>CoDev</div>
+      <p class="tagline">Mira en directe què fa la IA del teu equip. Cap IA trepitjarà la feina d'una altra.</p>
+      <label>Sala <input name="room" required placeholder="el-meu-projecte" autocomplete="off" /></label>
+      <label>El teu nom <input name="name" required placeholder="Santi" autocomplete="off" /></label>
+      <button type="submit">Entra a la sala</button>
+    </form>
+  </main>
+
+  <!-- Sala -->
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <div class="brand"><span class="logo"><i></i><i></i></span>CoDev</div>
+      <div class="room">
+        <span class="room-label">sala</span>
+        <strong id="room-name"></strong>
+        <button id="copy-link" class="ghost" title="Copia l'enllaç per convidar">Convida</button>
+      </div>
+      <form id="note-form" class="note-form">
+        <select id="note-to" aria-label="Destinatari"></select>
+        <input id="note-text" placeholder="Escriu una nota a l'equip…" autocomplete="off" />
+        <button type="submit">Envia</button>
+      </form>
+      <span id="conn" class="conn" title="Connexió amb el servidor"></span>
+    </header>
+    <div id="alert" class="alert" hidden></div>
+    <section id="columns" class="columns"></section>
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

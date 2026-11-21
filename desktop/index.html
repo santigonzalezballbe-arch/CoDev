@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ca">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src http: https: ws: wss:" />
+  <title>CoDev</title>
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Pantalla d'inici -->
+  <main id="start" class="start">
+    <form id="start-form" class="start-card">
+      <div class="brand big"><span class="logo"><i></i><i></i></span>CoDev</div>
+      <p class="tagline">Les vostres terminals de Claude Code, una al costat de l'altra. Cap IA trepitjarà la feina d'una altra.</p>
+
+      <label>Carpeta del projecte
+        <div class="row">
+          <input name="project" required readonly placeholder="Tria una carpeta…" />
+          <button type="button" id="pick">Tria…</button>
+        </div>
+      </label>
+      <div class="row two">
+        <label>El teu nom <input name="name" required placeholder="Santi" autocomplete="off" /></label>
+        <label>Sala <input name="room" required placeholder="el-meu-projecte" autocomplete="off" /></label>
+      </div>
+
+      <fieldset class="mode">
+        <label class="radio"><input type="radio" name="mode" value="host" checked />
+          <span><strong>Crear la sala</strong><small>Aquest ordinador fa de servidor. Els companys s'hi connecten.</small></span></label>
+        <label class="radio"><input type="radio" name="mode" value="join" />
+          <span><strong>Unir-me a una sala</strong><small>Un company ja l'ha creada.</small></span></label>
+      </fieldset>
+      <label id="server-field" hidden>Adreça del servidor
+        <input name="server" placeholder="http://192.168.1.20:4321" autocomplete="off" />
+      </label>
+
+      <p id="start-error" class="error" hidden></p>
+      <button type="submit" class="primary" id="enter">Entra</button>
+    </form>
+  </main>
+
+  <!-- Espai de treball -->
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <div class="brand"><span class="logo"><i></i><i></i></span>CoDev</div>
+      <div class="room">
+        <span class="room-label">sala</span>
+        <strong id="room-name"></strong>
+        <button id="invite" class="ghost">Convida</button>
+      </div>
+      <button id="add-claude" class="ghost" title="Obre una altra sessió de Claude Code teva">+ Claude Code</button>
+      <form id="note-form" class="note-form">
+        <select id="note-to" aria-label="Destinatari"></select>
+        <input id="note-text" placeholder="Nota a l'equip…" autocomplete="off" />
+        <button type="submit">Envia</button>
+      </form>
+      <span id="conn" class="conn" title="Connexió amb el servidor"></span>
+    </header>
+    <div id="alert" class="alert" hidden></div>
+    <section id="panes" class="panes"></section>
+  </div>
+
+  <script type="module" src="renderer.js"></script>
+</body>
+</html>
