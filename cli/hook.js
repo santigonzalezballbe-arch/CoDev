@@ -22,6 +22,23 @@ function editedFile(cfg, input) {
   return toProjectPath(cfg, ti.file_path || ti.notebook_path, input.cwd || cfg.root);
 }
 
+/** Codex (ChatGPT) edits with patches: "*** Update File: src/a.js", "*** Add File: …", "*** Delete File: …". */
+export function patchOf(input) {
+  const ti = input.tool_input;
+  const texts = typeof ti === 'string' ? [ti] : Object.values(ti || {}).filter((v) => typeof v === 'string');
+  if (Array.isArray(ti?.command)) texts.push(ti.command.join(' '));
+  return texts.find((t) => t.includes('*** Begin Patch')) || null;
+}
+const patchFiles = (patch) => [...patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm)].map((m) => m[1].trim());
+
+/** Every project file this tool call writes: Claude's edit tools or a Codex patch. */
+function editedFiles(cfg, input) {
+  if (EDIT_TOOLS.has(input.tool_name)) return [editedFile(cfg, input)].filter(Boolean);
+  const patch = patchOf(input);
+  if (!patch) return [];
+  return [...new Set(patchFiles(patch).map((f) => toProjectPath(cfg, f, input.cwd || cfg.root)).filter(Boolean))];
+}
+
 /** Turns a tool call into a readable activity entry. */
 export function describeTool(cfg, input) {
   const tool = input.tool_name;
@@ -65,9 +82,18 @@ export function describeTool(cfg, input) {
       const current = todos.find((t) => t.status === 'in_progress');
       return { kind: 'plan', summary: `Plan (${todos.filter((t) => t.status === 'completed').length}/${todos.length})${current ? `: now → ${current.content}` : ''}` };
     }
-    default:
-      if (tool?.startsWith('mcp__codev__')) return null; // CoDev's own tools already leave their own trace
+    default: {
+      if (/codev_/.test(tool || '')) return null; // CoDev's own tools already leave their own trace
+      // Codex (ChatGPT): edits come as patches, commands as a command line.
+      const patch = patchOf(input);
+      if (patch) {
+        const files = patchFiles(patch).map(rel);
+        return { kind: 'edit', summary: `Edited ${files.join(', ') || 'files'}`, files, diff: { old: '', new: clip(patch, 4000) } };
+      }
+      const cmd = Array.isArray(ti.command) ? ti.command.join(' ') : typeof ti.command === 'string' ? ti.command : null;
+      if (cmd) return { kind: 'command', summary: `$ ${clip(cmd.replace(/^(bash|sh) -l?c /, ''), 240)}` };
       return { kind: 'tool', summary: `Used ${tool}` };
+    }
   }
 }
 
@@ -175,11 +201,10 @@ export async function runHook() {
       }
 
       case 'PreToolUse': {
-        if (!EDIT_TOOLS.has(input.tool_name)) return;
-        const file = editedFile(cfg, input);
         // codev/ holds each person's own log: never locked, so nobody waits for it.
-        if (!file || file.startsWith('codev/')) return;
-        const { conflicts } = await api(cfg, 'claim', { files: [file] });
+        const files = editedFiles(cfg, input).filter((f) => !f.startsWith('codev/'));
+        if (!files.length) return;
+        const { conflicts } = await api(cfg, 'claim', { files });
         if (conflicts?.length) {
           const c = conflicts[0];
           output({
@@ -199,14 +224,14 @@ export async function runHook() {
       }
 
       case 'PostToolUse': {
-        if (EDIT_TOOLS.has(input.tool_name)) {
-          const file = editedFile(cfg, input);
-          if (file) {
-            const turn = readTurn(cfg, input);
+        const changed = editedFiles(cfg, input);
+        if (changed.length) {
+          const turn = readTurn(cfg, input);
+          for (const file of changed) {
             if (file === historyPath(cfg)) turn.logged = true;
             else if (!file.startsWith('codev/') && !turn.edited.includes(file)) turn.edited.push(file);
-            writeTurn(cfg, input, turn);
           }
+          writeTurn(cfg, input, turn);
         }
         // What Claude said before using the tool comes first, then what it did.
         await sendReplies(cfg, input);
@@ -226,7 +251,14 @@ export async function runHook() {
         // Claude's last words of the turn (the transcript can lag a moment behind the Stop event).
         if (!(await sendReplies(cfg, input))) {
           await new Promise((r) => setTimeout(r, 400));
-          await sendReplies(cfg, input);
+          if (!(await sendReplies(cfg, input)) && typeof input.last_assistant_message === 'string' && input.last_assistant_message.trim()) {
+            // Agents whose transcript we cannot read (Codex) may pass their last reply directly.
+            const turn = readTurn(cfg, input);
+            if (!turn.lastSent || turn.lastSent !== input.last_assistant_message) {
+              await api(cfg, 'activity', { kind: 'reply', tool: 'ai', summary: clip(input.last_assistant_message.trim(), 8000) });
+              writeTurn(cfg, input, { ...turn, lastSent: input.last_assistant_message });
+            }
+          }
         }
         const turn = readTurn(cfg, input);
         if (turn.edited.length && !turn.logged && !input.stop_hook_active) {

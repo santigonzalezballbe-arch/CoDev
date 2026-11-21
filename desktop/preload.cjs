@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('codev', {
   setupProject: (opts) => ipcRenderer.invoke('setup-project', opts),
   copy: (text) => ipcRenderer.invoke('copy', text),
   ptyCreate: (opts) => ipcRenderer.invoke('pty-create', opts),
+  agentsInfo: () => ipcRenderer.invoke('agents-info'),
+  setAgentKey: (agent, key) => ipcRenderer.invoke('agent-key-set', agent, key),
   ptyWrite: (id, data) => ipcRenderer.send('pty-write', id, data),
   ptyResize: (id, cols, rows) => ipcRenderer.send('pty-resize', id, cols, rows),
   ptyKill: (id) => ipcRenderer.send('pty-kill', id),

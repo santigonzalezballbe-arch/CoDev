@@ -1,5 +1,5 @@
 // Desktop app main process: window, real terminals (PTY) and an optional embedded server.
-import { app, BrowserWindow, Menu, ipcMain, dialog, clipboard, shell } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, dialog, clipboard, shell, safeStorage } from 'electron';
 import pty from '@lydell/node-pty';
 import os from 'node:os';
 import fs from 'node:fs';
@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { startServer } from '../server/server.js';
-import { setupProject, useRunner } from '../cli/init.js';
+import { setupProject, useRunner, getRunner, installCodexHooks } from '../cli/init.js';
+import { projectRules } from '../cli/config.js';
+import { AGENTS, spawnSpec, ollamaModels } from './agents.js';
 import { ensureCloudflared } from './cloudflared.js';
 import { History } from './history.js';
 
@@ -16,6 +18,12 @@ const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ptys = new Map(); // id -> process
 let win;
 let hostedServer = null;
+
+// Linux desktops may offer more than one secret store (KWallet, gnome-keyring). If the one Electron
+// picks is not running, safeStorage cannot save the DeepSeek key. CODEV_PASSWORD_STORE chooses it.
+if (process.platform === 'linux' && process.env.CODEV_PASSWORD_STORE) {
+  app.commandLine.appendSwitch('password-store', process.env.CODEV_PASSWORD_STORE);
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -246,19 +254,93 @@ function cleanEnv() {
   return Object.fromEntries(Object.entries(process.env).filter(([k]) => !SESSION_VARS.test(k)));
 }
 
-ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command }) => {
+/* ---------- AIs: which ones are installed, keys, local models ---------- */
+// API keys are encrypted with the system keychain (safeStorage) and never reach the UI.
+const keysFile = () => path.join(app.getPath('userData'), 'keys.json');
+function readKeys() {
+  try {
+    return JSON.parse(fs.readFileSync(keysFile(), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+function getKey(agent) {
+  const enc = readKeys()[agent];
+  if (!enc) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(enc, 'base64'));
+  } catch {
+    return null;
+  }
+}
+ipcMain.handle('agent-key-set', (_e, agent, key) => {
+  const a = AGENTS[agent];
+  if (!a?.needsKey) throw new Error('That AI does not take an API key.');
+  // No keychain, no key: CoDev never writes an API key in plain text.
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('This system has no keychain available, so CoDev cannot save the key encrypted.');
+  const keys = readKeys();
+  if (key) keys[agent] = safeStorage.encryptString(String(key).trim()).toString('base64');
+  else delete keys[agent];
+  fs.mkdirSync(path.dirname(keysFile()), { recursive: true });
+  fs.writeFileSync(keysFile(), JSON.stringify(keys), { mode: 0o600 });
+  return true;
+});
+
+const findCommand = (PATH, command) => PATH.split(path.delimiter).map((d) => path.join(d, command)).find((f) => fs.existsSync(f));
+
+ipcMain.handle('agents-info', async () => {
+  const PATH = await getUserPath();
+  return {
+    agents: AGENTS,
+    installed: { claude: !!findCommand(PATH, 'claude'), codex: !!findCommand(PATH, 'codex') },
+    hasKey: { deepseek: !!getKey('deepseek') },
+    ollama: await ollamaModels(),
+    secureStorage: safeStorage.isEncryptionAvailable(),
+  };
+});
+
+ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agent, model }) => {
   const PATH = await getUserPath();
   let file = process.env.SHELL || '/bin/bash';
-  if (command) {
-    file = PATH.split(':').map((d) => path.join(d, command)).find((f) => fs.existsSync(f));
-    if (!file) throw new Error(`Cannot find \`${command}\` in PATH. Install Claude Code: npm i -g @anthropic-ai/claude-code`);
+  let args = [];
+  let extraEnv = {};
+  let unset = [];
+  if (command || agent) {
+    const agentId = agent || 'claude';
+    const a = AGENTS[agentId] || AGENTS.claude;
+    const key = a.needsKey ? getKey(agentId) : null;
+    if (a.needsKey && !key) throw new Error(`No ${a.label} API key saved. Add it on the start screen and try again.`);
+    const spec = spawnSpec(agentId, {
+      model,
+      key,
+      codev: Object.fromEntries(Object.entries(env || {}).filter(([k]) => k.startsWith('CODEV_'))),
+      runner: getRunner(),
+      rules: projectRules({ name: env?.CODEV_NAME || 'You', room: env?.CODEV_ROOM || '' }),
+    });
+    file = findCommand(PATH, spec.command);
+    if (!file) {
+      throw new Error(`Cannot find \`${spec.command}\`. Install it with: ${a.install}${a.login ? `, then sign in with: ${a.login}` : ''}`);
+    }
+    // Codex asks for trust once; if the hooks cannot be written the terminal still works, only without locking.
+    if (spec.command === 'codex') {
+      try {
+        installCodexHooks(cwd);
+      } catch (err) {
+        console.warn(`CoDev: cannot install the Codex hooks in ${cwd}:`, err.message);
+      }
+    }
+    args = spec.args;
+    extraEnv = spec.env;
+    unset = spec.unset;
   }
-  const proc = pty.spawn(file, [], {
+  const base = cleanEnv();
+  for (const k of unset) delete base[k];
+  const proc = pty.spawn(file, args, {
     name: 'xterm-256color',
     cols,
     rows,
     cwd,
-    env: { ...cleanEnv(), PATH, ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'CoDev' },
+    env: { ...base, PATH, ...env, ...extraEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'CoDev' },
   });
   ptys.set(id, proc);
   const sender = e.sender;

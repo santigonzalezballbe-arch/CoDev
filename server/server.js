@@ -61,7 +61,7 @@ const cleanFiles = (files) => (Array.isArray(files) ? files.filter((f) => typeof
  */
 function staticFile(pathname) {
   if (pathname === '/' || pathname === '/index.html') return path.join(DESKTOP_DIR, 'index.html');
-  if (pathname === '/style.css' || pathname === '/renderer.js') return path.join(DESKTOP_DIR, pathname.slice(1));
+  if (pathname === '/style.css' || pathname === '/renderer.js' || pathname === '/agents.js') return path.join(DESKTOP_DIR, pathname.slice(1));
   for (const pkg of ['/node_modules/@xterm/', '/node_modules/@fontsource/']) {
     if (pathname.startsWith(pkg)) {
       const base = path.join(ROOT_DIR, pkg);

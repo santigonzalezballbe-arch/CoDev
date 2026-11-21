@@ -7,8 +7,12 @@ import { getRoom } from './rooms.js';
 const MAX_PENDING_BYTES = 4_000_000;
 
 function termInfo(t) {
-  return { id: t.id, member: t.member, title: t.title, cols: t.cols, rows: t.rows, open: t.open };
+  return { id: t.id, member: t.member, title: t.title, cols: t.cols, rows: t.rows, open: t.open, agent: t.agent || 'claude' };
 }
+
+/** Only the AIs CoDev knows about: an invalid id would give the wrong character on everyone's screen. */
+const AGENTS = new Set(['claude', 'deepseek', 'local', 'chatgpt']);
+const cleanAgent = (id) => (AGENTS.has(id) ? id : 'claude');
 
 function roomTerms(room) {
   room.terminals ||= new Map();
@@ -58,7 +62,7 @@ export function attachTerminals(httpServer, { authorized = () => true, guests = 
     send(ws, { t: 'room', type: 'snapshot', data: room.snapshot() });
     send(ws, listMsg(room));
     for (const t of room.terminals.values()) {
-      if (t.open) send(ws, { t: 'term-init', id: t.id, cols: t.cols, rows: t.rows, d: t.snapshot + t.pending.join('') });
+      if (t.open) send(ws, { t: 'term-init', id: t.id, agent: t.agent || 'claude', cols: t.cols, rows: t.rows, d: t.snapshot + t.pending.join('') });
     }
 
     ws.on('message', (raw) => {
@@ -78,6 +82,7 @@ export function attachTerminals(httpServer, { authorized = () => true, guests = 
             id: m.id,
             member: member || m.member,
             title: String(m.title || '').slice(0, 80),
+            agent: cleanAgent(m.agent),
             cols: m.cols | 0 || 80,
             rows: m.rows | 0 || 24,
             snapshot: typeof m.d === 'string' ? m.d : '',
@@ -88,7 +93,7 @@ export function attachTerminals(httpServer, { authorized = () => true, guests = 
           room.terminals.set(m.id, term);
           owned.add(m.id);
           broadcast(room, listMsg(room), ws);
-          broadcast(room, { t: 'term-init', id: term.id, cols: term.cols, rows: term.rows, d: term.snapshot }, ws);
+          broadcast(room, { t: 'term-init', id: term.id, agent: term.agent, cols: term.cols, rows: term.rows, d: term.snapshot }, ws);
           return;
         }
         case 'term-data': {

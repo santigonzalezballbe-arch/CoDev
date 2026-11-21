@@ -125,10 +125,10 @@ test('terminals are relayed and late joiners get the snapshot', async () => {
 
   const ana = await open('Ana');
   const marc = await open('Marc');
-  ana.ws.send(JSON.stringify({ t: 'term-open', id: 't1', title: 'Claude Code', cols: 100, rows: 30, d: 'FOTO' }));
+  ana.ws.send(JSON.stringify({ t: 'term-open', id: 't1', title: 'DeepSeek', agent: 'deepseek', cols: 100, rows: 30, d: 'FOTO' }));
   ana.ws.send(JSON.stringify({ t: 'term-data', id: 't1', d: '+dades' }));
   await tick();
-  assert.ok(marc.msgs.some((m) => m.t === 'terms' && m.list.some((t) => t.id === 't1' && t.member === 'Ana')));
+  assert.ok(marc.msgs.some((m) => m.t === 'terms' && m.list.some((t) => t.id === 't1' && t.member === 'Ana' && t.agent === 'deepseek')), 'each screen knows which AI the terminal runs');
   assert.ok(marc.msgs.some((m) => m.t === 'term-data' && m.d === '+dades'));
 
   // Marc cannot write to Ana's terminal.
@@ -138,7 +138,9 @@ test('terminals are relayed and late joiners get the snapshot', async () => {
 
   const late = await open('Laura');
   await tick();
-  assert.equal(late.msgs.find((m) => m.t === 'term-init').d, 'FOTO+dades');
+  const init = late.msgs.find((m) => m.t === 'term-init');
+  assert.equal(init.d, 'FOTO+dades');
+  assert.equal(init.agent, 'deepseek', 'a late joiner gets the AI too');
 
   ana.ws.close();
   await tick();
@@ -251,4 +253,19 @@ test('history search also reads the project history file the app keeps', async (
   assert.match(found, /Marc asked Claude: Migrate the database to Postgres/);
   assert.equal(await mcpCall(dirB, 'codev_search_history', { query: 'another room' }), 'Nothing in the history matches that.', 'other rooms stay out');
   assert.equal(await mcpCall(dirB, 'codev_search_history', { query: 'postgres', since_hours: 24 }), 'Nothing in the history matches that.');
+});
+
+test("ChatGPT's patches (Codex) are locked and logged like Claude's edits", async () => {
+  const patch = '*** Begin Patch\n*** Update File: src/auth.js\n@@\n-a\n+b\n*** Add File: src/new.js\n+x\n*** End Patch';
+  // Marc's ChatGPT wants to patch src/auth.js, which Ana holds: denied
+  await hook(dirA, { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/auth.js', old_string: 'a', new_string: 'b' } });
+  const res = JSON.parse((await hook(dirB, { hook_event_name: 'PreToolUse', tool_name: 'apply_patch', tool_input: { input: patch } })).out);
+  assert.equal(res.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(res.hookSpecificOutput.permissionDecisionReason, /src\/auth\.js/);
+
+  await hook(dirB, { hook_event_name: 'PostToolUse', tool_name: 'apply_patch', tool_input: { input: patch } });
+  await hook(dirB, { hook_event_name: 'PostToolUse', tool_name: 'shell', tool_input: { command: ['bash', '-lc', 'npm test'] } });
+  const evs = (await state()).events.filter((e) => e.member === 'Marc');
+  assert.equal(evs.findLast((e) => e.kind === 'edit').summary, 'Edited src/auth.js, src/new.js');
+  assert.equal(evs.findLast((e) => e.kind === 'command').summary, '$ npm test');
 });

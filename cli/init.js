@@ -16,6 +16,7 @@ let RUNNER = { exe: null, cli: CLI_PATH, env: {} };
 export function useRunner(runner) {
   RUNNER = { env: {}, ...runner };
 }
+export const getRunner = () => ({ exe: RUNNER.exe || 'node', cli: RUNNER.cli, env: { ...RUNNER.env } });
 const quote = (s) => `"${String(s).replace(/\\/g, '/')}"`;
 const envPrefix = () => Object.entries(RUNNER.env).map(([k, v]) => `${k}=${v} `).join('');
 const hookCommand = () => `${envPrefix()}${RUNNER.exe ? quote(RUNNER.exe) : 'node'} ${quote(RUNNER.cli)} hook`;
@@ -59,6 +60,30 @@ export function installHooks(root) {
   return file;
 }
 
+/**
+ * Codex (ChatGPT) reads Claude-compatible hooks from .codex/hooks.json in the project. Same handler,
+ * same events. Codex asks the user to trust new hooks once before running them.
+ */
+export function installCodexHooks(root) {
+  const file = path.join(root, '.codex', 'hooks.json');
+  const settings = readJson(file);
+  settings.hooks ||= {};
+  const command = hookCommand();
+  for (const [event, matcher] of Object.entries({ SessionStart: null, UserPromptSubmit: null, PreToolUse: '*', PostToolUse: '*', Stop: null })) {
+    const groups = (settings.hooks[event] || [])
+      .map((g) => ({ ...g, hooks: (g.hooks || []).filter((h) => !isCodevHook(h)) }))
+      .filter((g) => g.hooks.length);
+    const group = { hooks: [{ type: 'command', command, timeout: 10 }] };
+    if (matcher) group.matcher = matcher;
+    groups.push(group);
+    settings.hooks[event] = groups;
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(settings, null, 2) + '\n');
+  addToGitignore(root, ['.codex/hooks.json']);
+  return file;
+}
+
 function addToGitignore(root, entries) {
   const file = path.join(root, '.gitignore');
   const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
@@ -94,7 +119,7 @@ function ensureCodevFolder(root) {
 
 This folder is kept by the AIs of everyone working on this project with [CoDev](https://github.com/santigonzalezballbe-arch/CoDev).
 
-- \`history/<name>.md\`: one log per person. After every task that changes files, that person's Claude appends an entry:
+- \`history/<name>.md\`: one log per person. After every task that changes files, that person's AI appends an entry:
   when, what was asked, what changed and why, and what is left to do.
 
 Each person writes only their own file, so the logs never block each other and never conflict when you merge.

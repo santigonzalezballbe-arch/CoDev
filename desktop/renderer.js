@@ -1,9 +1,12 @@
-// CoDev UI: local Claude Code terminals (you can type in them) and live replicas of your teammates' terminals.
+// CoDev UI: local AI terminals (you can type in them) and live replicas of your teammates' terminals.
+// Each terminal can run Claude, DeepSeek, a local Ollama model (all three inside Claude Code) or
+// ChatGPT (inside OpenAI's Codex CLI); the header and the character show which one it is.
 // The same file runs in the desktop app and, served by the room's server, in a browser (watch-only).
 import { Terminal } from '../node_modules/@xterm/xterm/lib/xterm.mjs';
 import { FitAddon } from '../node_modules/@xterm/addon-fit/lib/addon-fit.mjs';
 import { SerializeAddon } from '../node_modules/@xterm/addon-serialize/lib/addon-serialize.mjs';
 import { Unicode11Addon } from '../node_modules/@xterm/addon-unicode11/lib/addon-unicode11.mjs';
+import { AGENTS, AGENT_IDS, agentLabel } from './agents.js';
 
 const $ = (sel) => document.querySelector(sel);
 // In the desktop app, preload.cjs provides window.codev. In a browser there is no Claude Code to run,
@@ -40,6 +43,8 @@ const api = window.codev || {
   historyAppend: noop,
   historyRead: async () => [],
   historyReveal: noop,
+  agentsInfo: async () => null,
+  setAgentKey: async () => false,
 };
 
 /* ---------- Host side: requests from browser visitors ---------- */
@@ -156,8 +161,91 @@ const store = {
 /* ================= Start screen ================= */
 const form = $('#start-form');
 const saved = store.get('codev:start') || {};
-const ui = { source: saved.source || 'github', mode: saved.mode || 'host', reach: saved.reach || 'lan', roomRepo: null };
+const ui = {
+  source: saved.source || 'github',
+  mode: saved.mode || 'host',
+  reach: saved.reach || 'lan',
+  roomRepo: null,
+  agent: AGENTS[saved.agent] ? saved.agent : 'claude',
+  model: saved.model || '',
+};
 for (const k of ['project', 'name', 'room', 'server', 'repo']) if (saved[k]) form[k].value = saved[k];
+
+/* ---------- Which AIs exist, which are installed, which keys are saved ---------- */
+// The main process answers: the agent list itself comes from desktop/agents.js (the same file the
+// server uses to start them). API keys never come back here: only whether one is saved.
+const AI_STATE = { info: null, loading: null };
+
+async function loadAgents(force = false) {
+  if (WEB || !api.agentsInfo) return null;
+  if (!force && AI_STATE.info) return AI_STATE.info;
+  AI_STATE.loading ||= api.agentsInfo().catch(() => null);
+  AI_STATE.info = await AI_STATE.loading;
+  AI_STATE.loading = null;
+  return AI_STATE.info;
+}
+
+const hasKey = (agent) => !!AI_STATE.info?.hasKey?.[agent];
+const modelOptions = (agent) => {
+  const a = AGENTS[agent] || AGENTS.claude;
+  if (a.ollama) return AI_STATE.info?.ollama ?? null; // null: Ollama did not answer
+  return (a.models || []).map((name) => ({ name }));
+};
+
+/** Fills a model <select> for an agent and returns the model that ends up chosen. */
+function fillModelSelect(sel, agent, value = '') {
+  const a = AGENTS[agent] || AGENTS.claude;
+  const list = modelOptions(agent);
+  const key = `${agent}|${list ? list.map((m) => m.name).join(',') : '?'}`;
+  if (sel.dataset.key !== key) {
+    sel.dataset.key = key;
+    sel.replaceChildren();
+    if (!list) sel.append(h('option', { value: '' }, 'Looking for Ollama…'));
+    else if (!list.length) sel.append(h('option', { value: '' }, a.ollama ? 'No models installed' : 'Default'));
+    else for (const m of list) sel.append(h('option', { value: m.name }, m.params ? `${m.name} · ${m.params}` : m.name));
+  }
+  sel.disabled = !list || !list.length;
+  if (!list || !list.length) return null;
+  const names = list.map((m) => m.name);
+  sel.value = names.includes(value) ? value : names.includes(a.defaultModel) ? a.defaultModel : names[0];
+  return sel.value;
+}
+
+/** The AI buttons of a picker, built once. `cls` is the styling class of each button. */
+function buildAgentSwitch(el, cls) {
+  el.replaceChildren(
+    ...AGENT_IDS.map((id) => {
+      const a = AGENTS[id];
+      return h('button', { type: 'button', class: cls, role: 'radio', 'data-ai': id, title: a.by }, a.label);
+    })
+  );
+}
+
+/**
+ * What the user must know before choosing an AI: how it runs, what it needs, and why a local
+ * model can feel slow. Empty when there is nothing to warn about.
+ */
+function agentWarning(id) {
+  const a = AGENTS[id] || AGENTS.claude;
+  const parts = [];
+  if (a.experimental) {
+    parts.push(
+      "Experimental: CoDev drives OpenAI's Codex CLI. Install it with npm i -g @openai/codex and sign in with codex login. " +
+        'Codex asks you once to trust this folder before it runs CoDev\'s hooks, so file locking does not work until you accept.'
+    );
+  }
+  if (a.ollama) {
+    parts.push('Local models run on your computer. Without a GPU, a big model can take minutes per answer: pick a small one (7B or less).');
+  }
+  if (a.needsKey && AI_STATE.info?.secureStorage === false) {
+    parts.push('This system has no keychain, so CoDev will not save the key. On Linux, try starting CoDev with CODEV_PASSWORD_STORE=gnome-libsecret.');
+  }
+  if (AI_STATE.info?.installed && AI_STATE.info.installed[a.command] === false) {
+    parts.push(`${a.command === 'codex' ? 'Codex' : 'Claude Code'} is not installed: ${a.install}.`);
+  }
+  return parts.join(' ');
+}
+
 
 /** An invite is a link like https://host/?room=R&key=K. It may arrive inside a longer message. */
 function parseInvite(text) {
@@ -187,7 +275,7 @@ function setBig(el, text, placeholder) {
   const value = text.trim() || placeholder;
   if (line.textContent !== value) line.textContent = value;
   line.classList.toggle('placeholder', !text.trim());
-  let size = Math.min(280, window.innerHeight * 0.3, window.innerWidth * 0.16);
+  let size = Math.min(280, window.innerHeight * 0.22, window.innerWidth * 0.16);
   el.style.fontSize = `${size}px`;
   while (line.offsetWidth > el.clientWidth && size > 40) {
     size -= 4;
@@ -221,6 +309,63 @@ function renderStart() {
   } else {
     lead.textContent = 'Paste the invite your teammate copied with the Invite button. It fills in the room and the key.';
   }
+  renderStartAI();
+}
+
+/** Builds the AI selector of the start screen once; renderStartAI() only updates it. */
+function setupStartAI() {
+  buildAgentSwitch($('#ai-switch'), 'opt');
+  $('#ai-switch').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ai]');
+    if (!b) return;
+    ui.agent = b.dataset.ai;
+    ui.model = '';
+    renderStart();
+  });
+  $('#ai-model').addEventListener('change', () => (ui.model = $('#ai-model').value));
+}
+
+/** The AI field of the start screen: key or model when the chosen AI needs one. */
+function renderStartAI() {
+  const sw = $('#ai-switch');
+  if (!sw.children.length) return; // a browser visitor never starts a terminal
+  const a = AGENTS[ui.agent] || AGENTS.claude;
+  for (const b of sw.children) b.setAttribute('aria-checked', String(b.dataset.ai === a.id));
+  $('#ai-hint').textContent = a.by;
+
+  $('#ai-key-field').hidden = !a.needsKey || AI_STATE.info?.secureStorage === false;
+  if (a.needsKey) {
+    const hint = $('#ai-key-hint');
+    if (hasKey(a.id)) {
+      hint.replaceChildren('A key is saved, encrypted with your system keychain. Leave this empty to use it.');
+    } else {
+      hint.replaceChildren('Saved encrypted with your system keychain; CoDev never shows it again. Get one at ');
+      hint.append(h('a', { href: a.keyUrl, target: '_blank', rel: 'noreferrer' }, 'platform.deepseek.com'), '.');
+    }
+  }
+
+  const models = modelOptions(a.id);
+  const showModel = !!a.ollama || (a.models && a.models.length);
+  $('#ai-model-field').hidden = !showModel;
+  if (showModel) {
+    $('#ai-model-label').textContent = a.ollama ? 'Local model' : 'Model';
+    ui.model = fillModelSelect($('#ai-model'), a.id, ui.model) || '';
+    $('#ai-model-hint').textContent = a.ollama
+      ? models === null
+        ? "Ollama is not running at localhost:11434. Start it with ollama serve, then reload this screen."
+        : models.length
+          ? `${models.length} models installed in Ollama.`
+          : 'No models installed. Pull one with ollama pull qwen2.5-coder:7b.'
+      : 'deepseek-chat is the fast one; deepseek-reasoner thinks longer.';
+  } else {
+    ui.model = '';
+  }
+  $('#ai-credentials').classList.toggle('two', !$('#ai-key-field').hidden && !$('#ai-model-field').hidden);
+
+  const warn = agentWarning(a.id);
+  $('#ai-note').hidden = !warn;
+  $('#ai-note').textContent = warn;
+  $('#ai-note').classList.toggle('warn', !!warn);
 }
 
 form.addEventListener('click', (e) => {
@@ -299,6 +444,10 @@ const checkRoom = debounce(async () => {
   renderStart();
 }, 400);
 
+if (!WEB) {
+  setupStartAI();
+  loadAgents().then(renderStart);
+}
 document.fonts.ready.then(renderStart);
 renderStart();
 checkRoom();
@@ -354,6 +503,8 @@ form.addEventListener('submit', async (e) => {
     name: form.name.value.trim(),
     room: form.room.value.trim(),
     server: form.server.value.trim().replace(/\/$/, ''),
+    agent: ui.agent,
+    model: ui.model,
   };
   const joinKey = form.key.value.trim();
   if (WEB) return enterAsViewer(v.name, v.room, joinKey);
@@ -362,6 +513,29 @@ form.addEventListener('submit', async (e) => {
   if (v.source === 'folder' && !v.project) return showError('Choose the project folder.');
   if (!v.room) return showError('Give the room a name.');
   if (v.mode === 'join' && !/^https?:\/\//.test(v.server)) return showError('Paste the invite your teammate sent you.');
+
+  // The AI needs its key (DeepSeek) or its model (local Ollama) before the first terminal can start.
+  const agent = AGENTS[v.agent] || AGENTS.claude;
+  if (agent.needsKey || agent.ollama) await loadAgents();
+  if (agent.needsKey) {
+    if (AI_STATE.info?.secureStorage === false && !hasKey(agent.id)) {
+      return showError('This system has no keychain, so CoDev cannot save the DeepSeek key encrypted. Start CoDev with CODEV_PASSWORD_STORE=gnome-libsecret (or kwallet6) and try again.');
+    }
+    const typed = $('#agent-key').value.trim();
+    try {
+      if (typed) {
+        await api.setAgentKey(agent.id, typed);
+        AI_STATE.info = null;
+        await loadAgents(true);
+      } else if (!hasKey(agent.id)) {
+        return showError(`Paste your ${agent.label} API key.`);
+      }
+    } catch (ex) {
+      return showError(String(ex.message || ex).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    }
+  } else if (agent.ollama && !v.model) {
+    return showError('Choose a local Ollama model.');
+  }
   store.set('codev:start', v);
 
   const btn = $('#enter');
@@ -401,7 +575,7 @@ form.addEventListener('submit', async (e) => {
         body: JSON.stringify({ member: v.name, repo: repoFull }),
       }).catch(() => {});
     }
-    S.cfg = { root, server, room: v.room, name: v.name, lan, key, publicUrl, host: v.mode === 'host', repo: repoFull };
+    S.cfg = { root, server, room: v.room, name: v.name, lan, key, publicUrl, host: v.mode === 'host', repo: repoFull, agent: v.agent, model: v.model };
     await document.fonts.load('13px "JetBrains Mono"');
     await document.fonts.load('bold 13px "JetBrains Mono"');
     openWorkspace();
@@ -430,7 +604,7 @@ async function enterAsViewer(name, room, key) {
   const res = await fetch(`/api/rooms/${encodeURIComponent(room)}/state`, { headers: keyHeaders(key) }).catch(() => null);
   if (!res) return fail('Cannot reach the room. Is your teammate\'s app still open?');
   if (res.status === 401) return fail('This invite is missing its key, or the key is wrong. Ask for a new invite.');
-  S.cfg = { root: null, server: location.origin, room, name, key, lan: [], publicUrl: null, host: false, repo: null };
+  S.cfg = { root: null, server: location.origin, room, name, key, lan: [], publicUrl: null, host: false, repo: null, agent: 'claude', model: '' };
   await document.fonts.load('13px "JetBrains Mono"');
   openWorkspace();
 }
@@ -455,8 +629,8 @@ function openWorkspace() {
   });
   renderShare();
   $('#share').addEventListener('click', toggleShare);
-  $('#add-claude').addEventListener('click', () => ([...S.panes.values()].some((p) => p.local) ? openNewClaude() : addLocal()));
-  setupNewClaude();
+  $('#add-claude').addEventListener('click', () => openNewAI({ first: ![...S.panes.values()].some((p) => p.local) }));
+  setupNewAI();
   setupChat();
   setupViews();
 
@@ -470,7 +644,7 @@ function openWorkspace() {
     S.onFirstTerms = resolve;
     setTimeout(resolve, 1500);
   });
-  if (!WEB) first.then(() => addLocal());
+  if (!WEB) first.then(() => addLocal('', { agent: S.cfg.agent, model: S.cfg.model }));
   if (WEB) $('#add-claude').textContent = 'Open my Claude Code';
   if (S.cfg.host) api.setHostContext({ root: S.cfg.root, room: S.cfg.room, name: S.cfg.name });
 }
@@ -684,7 +858,7 @@ function renderChatPeople() {
 
 function miniBot(name) {
   const box = document.createElement('span');
-  box.innerHTML = BOT_SVG;
+  box.innerHTML = botSvg(agentOf(name));
   const svg = box.firstElementChild;
   svg.setAttribute('class', 'mini-bot');
   svg.style.setProperty('--person', colorOf(name));
@@ -700,7 +874,7 @@ function renderChat() {
   const list = $('#chat-list');
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
   if (!S.chat.length) {
-    list.replaceChildren(h('p', { class: 'chat-empty' }, 'No messages yet. Write to the whole team or to one person: their Claude reads the messages sent to them at its next prompt.'));
+    list.replaceChildren(h('p', { class: 'chat-empty' }, 'No messages yet. Write to the whole team or to one person: their AI reads the messages sent to them at its next prompt.'));
     return;
   }
   const out = [];
@@ -730,7 +904,7 @@ function renderChat() {
       el.append(
         h('div', { class: 'group-meta' },
           ai ? miniBot(m.member) : null,
-          personChip(m.member, mine ? (ai ? 'Your Claude' : 'You') : ai ? `${m.member}'s Claude` : m.member),
+          personChip(m.member, mine ? (ai ? `Your ${aiName(m.member)}` : 'You') : ai ? `${m.member}'s ${aiName(m.member)}` : m.member),
           h('span', { class: 'group-tag' }, to),
           h('span', { class: 'group-time' }, d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })))
       );
@@ -807,24 +981,24 @@ const wsSend = (msg) => S.ws?.readyState === 1 && S.ws.send(JSON.stringify(msg))
 function announce(p) {
   p.term.write('', () => {
     p.queue = [];
-    wsSend({ t: 'term-open', id: p.id, member: p.member, title: p.title, cols: p.term.cols, rows: p.term.rows, d: p.ser.serialize({ scrollback: 1000 }) });
+    wsSend({ t: 'term-open', id: p.id, member: p.member, title: p.title, agent: p.agent, cols: p.term.cols, rows: p.term.rows, d: p.ser.serialize({ scrollback: 1000 }) });
   });
 }
 
 /* ---------- Panes ---------- */
-function makePane({ id, member, local, title }) {
+function makePane({ id, member, local, title, agent = 'claude', model = '' }) {
   const head = h('header', { class: 'pane-head' });
   const host = h('div', { class: 'term-host' });
   const waiting = h(
     'div',
     { class: 'waiting' },
-    local ? (WEB ? 'Asking the host to open your Claude Code… they have to click Allow.' : 'Opening Claude Code…') : `Waiting for ${member}'s terminal…`
+    local ? (WEB ? 'Asking the host to open your Claude Code… they have to click Allow.' : `Opening ${agentLabel(agent)}…`) : `Waiting for ${member}'s terminal…`
   );
   const wrap = h('div', { class: 'term-wrap' }, host, waiting);
   // The conversation view lies over the terminal, which keeps its size and keeps running underneath.
   const convo = h('div', { class: 'convo' });
   const root = h('article', { class: `pane ${local ? 'local' : 'remote'}` }, head, h('div', { class: 'pane-body' }, wrap, convo));
-  const pane = { id, member, local, title, root, head, host, wrap, waiting, convo, createdAt: Date.now(), view: null };
+  const pane = { id, member, local, title, agent: AGENTS[agent] ? agent : 'claude', model, root, head, host, wrap, waiting, convo, createdAt: Date.now(), view: null };
   S.panes.set(id, pane);
   buildConvo(pane);
   applyView(pane);
@@ -880,8 +1054,8 @@ function markTyping(p, d) {
   }
 }
 
-/** Local terminal: a real Claude Code in a PTY, relayed to the room. */
-/* ---------- Naming another Claude of yours ---------- */
+/** Local terminal: a real AI in a PTY (Claude Code, or Codex for ChatGPT), relayed to the room. */
+/* ---------- Another AI of yours ---------- */
 const NICKNAMES = ['Nova', 'Pixel', 'Bolt', 'Echo', 'Orbit', 'Comet', 'Byte', 'Spark', 'Atlas', 'Juno'];
 const FOCUS = ['frontend', 'backend', 'tests', 'docs', 'fixes', 'design'];
 const MEMBER_SEP = ' · ';
@@ -894,7 +1068,16 @@ function splitMember(member) {
 
 const usedLabels = () => new Set([...S.panes.values()].filter((p) => p.local).map((p) => splitMember(p.member)[1].toLowerCase()));
 
-function setupNewClaude() {
+/** What the "Another AI" dialog is about to open. */
+const nc = { agent: 'claude', model: '', first: false };
+
+const ncError = (text) => {
+  const err = $('#nc-error');
+  err.textContent = text;
+  err.hidden = false;
+};
+
+function setupNewAI() {
   const box = $('#new-claude');
   const input = $('#nc-name');
   $('#nc-chips').replaceChildren(
@@ -907,46 +1090,93 @@ function setupNewClaude() {
       return b;
     })
   );
+  buildAgentSwitch($('#nc-ai'), 'nc-chip');
+  $('#nc-ai').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ai]');
+    if (!b || b.dataset.ai === nc.agent) return;
+    nc.agent = b.dataset.ai;
+    nc.model = '';
+    $('#nc-key-input').value = '';
+    renderNewAI();
+  });
   $('#nc-cancel').addEventListener('click', () => (box.hidden = true));
   box.addEventListener('keydown', (e) => e.key === 'Escape' && (box.hidden = true));
-  $('#new-claude-form').addEventListener('submit', (e) => {
+  $('#new-claude-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    $('#nc-error').hidden = true;
     const label = input.value.replace(/·/g, '').replace(/\s+/g, ' ').trim().slice(0, 20);
-    const err = $('#nc-error');
-    err.hidden = true;
-    if (!label) {
-      err.textContent = 'Give it a name.';
-      err.hidden = false;
-      return;
+    if (!label && !nc.first) return ncError('Give it a name.');
+    if (label && usedLabels().has(label.toLowerCase())) return ncError(`You already have an AI called ${label}.`);
+    const a = AGENTS[nc.agent] || AGENTS.claude;
+    try {
+      if (a.needsKey) {
+        if (AI_STATE.info?.secureStorage === false && !hasKey(a.id)) {
+          return ncError('This system has no keychain, so CoDev cannot save the key encrypted. Start CoDev with CODEV_PASSWORD_STORE=gnome-libsecret (or kwallet6) and try again.');
+        }
+        const typed = $('#nc-key-input').value.trim();
+        if (typed) {
+          await api.setAgentKey(a.id, typed);
+          AI_STATE.info = null;
+          await loadAgents(true);
+        } else if (!hasKey(a.id)) {
+          return ncError(`Paste your ${a.label} API key.`);
+        }
+      }
+    } catch (ex) {
+      return ncError(String(ex.message || ex).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
     }
-    if (usedLabels().has(label.toLowerCase())) {
-      err.textContent = `You already have a Claude called ${label}.`;
-      err.hidden = false;
-      return;
-    }
+    if (a.ollama && !nc.model) return ncError('Choose a local model.');
     box.hidden = true;
-    addLocal(label);
+    addLocal(label, { agent: a.id, model: nc.model });
   });
 }
 
-function openNewClaude() {
+/** The "Another AI" dialog: which AI, which model, and what that AI needs. */
+function renderNewAI() {
+  const a = AGENTS[nc.agent] || AGENTS.claude;
+  for (const b of $('#nc-ai').children) b.setAttribute('aria-checked', String(b.dataset.ai === a.id));
+  $('#nc-key').hidden = !a.needsKey || AI_STATE.info?.secureStorage === false;
+  if (a.needsKey) $('#nc-key-input').placeholder = hasKey(a.id) ? 'A key is saved: leave it empty to keep it' : 'sk-...';
+  const showModel = !!a.ollama || (a.models && a.models.length);
+  $('#nc-model').hidden = !showModel;
+  if (showModel) nc.model = fillModelSelect($('#nc-model-select'), a.id, nc.model) || '';
+  else nc.model = '';
+  const warn = agentWarning(a.id);
+  $('#nc-note').hidden = !warn;
+  $('#nc-note').textContent = warn;
+  $('#nc-note').classList.toggle('warn', !!warn);
+}
+
+async function openNewAI({ first = false } = {}) {
+  nc.first = first;
+  nc.agent = first ? (AGENTS[S.cfg?.agent] ? S.cfg.agent : 'claude') : 'claude';
+  nc.model = first ? S.cfg?.model || '' : '';
   const box = $('#new-claude');
+  $('#nc-title').textContent = first ? 'Open your AI' : 'Another AI';
+  $('#nc-help').textContent = first
+    ? 'This is your main terminal: it shows as you. Leave the name empty to use your own name.'
+    : 'It shows next to your name, so the team knows what each of your AIs is on.';
   const used = usedLabels();
-  $('#nc-name').value = NICKNAMES.find((n) => !used.has(n.toLowerCase())) || '';
+  $('#nc-name').value = first ? '' : NICKNAMES.find((n) => !used.has(n.toLowerCase())) || '';
+  $('#nc-key-input').value = '';
   $('#nc-error').hidden = true;
+  // A model list can be stale (Ollama may have started after the app): look again for local models.
+  if (AGENTS[nc.agent]?.ollama) await loadAgents(!AI_STATE.info?.ollama);
+  renderNewAI();
   // Under the button that opened it, inside the window.
   const r = $('#add-claude').getBoundingClientRect();
   box.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - 372))}px`;
   box.hidden = false;
-  $('#nc-name').select();
+  if (!first) $('#nc-name').select();
 }
 
-/** label: the name of a second (third…) Claude of yours, shown as "You · label". */
-async function addLocal(label = '') {
+/** label: the name of a second (third…) AI of yours, shown as "You · label". */
+async function addLocal(label = '', { agent = 'claude', model = '' } = {}) {
   const idx = ++S.localCount;
   const member = label ? `${S.cfg.name}${MEMBER_SEP}${label}` : S.cfg.name;
   const id = `${S.cfg.name.replace(/\W+/g, '_')}-${Date.now().toString(36)}-${idx}`;
-  const p = makePane({ id, member, local: true, title: 'Claude Code' });
+  const ai = AGENTS[agent] ? agent : 'claude';
+  const p = makePane({ id, member, local: true, title: agentLabel(ai), agent: ai, model });
 
   p.term = newTerminal({ cursorBlink: true });
   p.fit = new FitAddon();
@@ -958,7 +1188,7 @@ async function addLocal(label = '') {
   p.fit.fit();
   p.queue = [];
 
-  // Ctrl+Shift+C / Ctrl+Shift+V to copy and paste (Ctrl+C still goes to Claude).
+  // Ctrl+Shift+C / Ctrl+Shift+V to copy and paste (Ctrl+C still goes to the AI).
   p.term.attachCustomKeyEventHandler((e) => {
     if (e.type === 'keydown' && e.ctrlKey && e.shiftKey && e.code === 'KeyC') {
       if (p.term.hasSelection()) api.copy(p.term.getSelection());
@@ -978,7 +1208,7 @@ async function addLocal(label = '') {
     api.ptyResize(id, cols, rows);
     wsSend({ t: 'term-resize', id, cols, rows });
   });
-  // Batch resizes: each one makes Claude Code redraw everything.
+  // Batch resizes: each one makes the AI redraw everything.
   p.ro = new ResizeObserver(() => {
     clearTimeout(p.fitTimer);
     p.fitTimer = setTimeout(() => {
@@ -1020,7 +1250,8 @@ async function createPty(p) {
     cwd: S.cfg.root,
     cols: p.term.cols,
     rows: p.term.rows,
-    command: 'claude',
+    agent: p.agent,
+    model: p.model,
     env: { CODEV_SERVER: S.cfg.server, CODEV_ROOM: S.cfg.room, CODEV_NAME: p.member, CODEV_ROOT: S.cfg.root, ...(S.cfg.key && { CODEV_KEY: S.cfg.key }) },
   });
   p.waiting.hidden = true;
@@ -1050,7 +1281,7 @@ api.onPtyExit((id, code) => {
   const p = S.panes.get(id);
   if (!p) return;
   p.exited = h('div', { class: 'exited' },
-    `Claude Code exited (code ${code}).`,
+    `${agentLabel(p.agent)} exited (code ${code}).`,
     h('button', { onclick: () => { p.term.reset(); startPty(p).then(() => announce(p)); } }, 'Restart'),
     h('button', { class: 'quiet', onclick: () => closeLocal(p) }, 'Close'));
   p.wrap.append(p.exited);
@@ -1064,7 +1295,7 @@ function closeLocal(p) {
 
 /** Remote terminal: a read-only replica of a teammate's terminal. */
 function addRemote(info) {
-  const p = makePane({ id: info.id, member: info.member, local: false, title: info.title });
+  const p = makePane({ id: info.id, member: info.member, local: false, title: info.title, agent: info.agent });
   p.term = newTerminal({ disableStdin: true, cursorBlink: false, cols: info.cols, rows: info.rows, scrollback: 1000 });
   p.term.open(p.host);
   p.ro = new ResizeObserver(() => rescale(p));
@@ -1187,7 +1418,11 @@ function renderHistory() {
 
 function historyEntry(r, d) {
   const quiet = ['read', 'tool', 'web', 'agent', 'plan'].includes(r.kind);
-  const kind = r.kind === 'note' ? `note${r.to ? ` to ${r.to}` : ' to everyone'}${r.from === 'ai' ? ' (from the AI)' : ''}` : KIND_WORD[r.kind] ?? r.kind;
+  const kind = r.kind === 'note'
+    ? `note${r.to ? ` to ${r.to}` : ' to everyone'}${r.from === 'ai' ? ' (from the AI)' : ''}`
+    : r.kind === 'prompt'
+      ? `asked ${aiName(r.member)}`
+      : KIND_WORD[r.kind] ?? r.kind;
   return h('article', { class: `entry ${r.kind}${quiet ? ' quiet' : ''}` },
     h('time', { class: 'entry-time', datetime: d.toISOString(), title: d.toLocaleString() }, d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })),
     h('div', {},
@@ -1260,14 +1495,15 @@ function applyView(p) {
 }
 
 function buildConvo(p) {
+  const who = agentLabel(p.agent);
   p.cv = {
     list: h('div', { class: 'convo-list' }),
-    working: h('div', { class: 'convo-working' }, 'Claude is working', h('span', { class: 'dots' }, '...')),
+    working: h('div', { class: 'convo-working' }, `${who} is working`, h('span', { class: 'dots' }, '...')),
     typing: h('div', { class: 'convo-working' }, `${splitMember(p.member)[0]} is typing`, h('span', { class: 'dots' }, '...')),
   };
   p.convo.append(p.cv.list, p.cv.typing, p.cv.working);
   if (p.local) {
-    const input = h('textarea', { rows: '1', placeholder: 'Ask Claude something', autocomplete: 'off' });
+    const input = h('textarea', { rows: '1', placeholder: `Ask ${who} something`, autocomplete: 'off' });
     const form = h('form', { class: 'convo-form' }, input, h('button', { type: 'submit', class: 'send' }, 'Send'));
     form.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -1371,7 +1607,7 @@ function renderConvo(p, force = false) {
       );
     } else if (e.kind === 'conflict') {
       steps = null;
-      out.push(h('div', { class: 'cv-system' }, `CoDev stopped this Claude: ${e.files?.[0] || 'a file'} belongs to ${e.owner}.`));
+      out.push(h('div', { class: 'cv-system' }, `CoDev stopped this ${agentLabel(p.agent)}: ${e.files?.[0] || 'a file'} belongs to ${e.owner}.`));
     } else {
       if (!steps) {
         steps = h('div', { class: 'cv-steps' });
@@ -1382,30 +1618,65 @@ function renderConvo(p, force = false) {
     }
   }
   if (!out.length) {
-    out.push(h('p', { class: 'cv-empty' }, p.local ? 'Write below to ask Claude for something. Its replies and everything it does will show here.' : `When ${person} asks Claude for something, the conversation shows here.`));
+    out.push(h('p', { class: 'cv-empty' }, p.local ? `Write below to ask ${agentLabel(p.agent)} for something. Its replies and everything it does will show here.` : `When ${person} asks ${agentLabel(p.agent)} for something, the conversation shows here.`));
   }
   list.replaceChildren(...out);
   if (atBottom || force) list.scrollTop = list.scrollHeight;
 }
 
 /* ---------- Headers and character ---------- */
-const BOT_SVG = `
-<svg class="bot" viewBox="-2 -3 26 19" shape-rendering="crispEdges" aria-hidden="true">
-  <g class="body">
+// One pixel character per AI. They share their parts (body, eyes, arms, antenna, smile) so that
+// every state animates them the same way: working, typing, asleep...
+const BOT_BODIES = {
+  // Claude: the CoDev robot
+  claude: `
     <rect class="ant-on" x="5" y="-3" width="6" height="1"/>
-    <rect x="7" y="-1" width="2" height="2"/>
-    <rect x="7.5" y="1" width="1" height="2"/>
-    <rect x="3" y="3" width="10" height="8"/>
-    <rect x="2" y="4" width="12" height="6"/>
+    <rect x="7" y="-1" width="2" height="2"/><rect x="7.5" y="1" width="1" height="2"/>
+    <rect x="3" y="3" width="10" height="8"/><rect x="2" y="4" width="12" height="6"/>
     <g class="eyes"><rect class="cut" x="4" y="5" width="2" height="3"/><rect class="cut" x="10" y="5" width="2" height="3"/></g>
     <rect class="cut mouth" x="6" y="9" width="4" height="1"/>
-    <rect class="cut smile" x="5" y="8" width="1" height="1"/>
-    <rect class="cut smile" x="10" y="8" width="1" height="1"/>
-    <rect class="arm arm-l" x="0" y="6" width="2" height="4"/>
-    <rect class="arm arm-r" x="14" y="6" width="2" height="4"/>
-    <rect x="4" y="11" width="3" height="2"/>
-    <rect x="9" y="11" width="3" height="2"/>
-  </g>
+    <rect class="cut smile" x="5" y="8" width="1" height="1"/><rect class="cut smile" x="10" y="8" width="1" height="1"/>
+    <rect class="arm arm-l" x="0" y="6" width="2" height="4"/><rect class="arm arm-r" x="14" y="6" width="2" height="4"/>
+    <rect x="4" y="11" width="3" height="2"/><rect x="9" y="11" width="3" height="2"/>`,
+  // DeepSeek: a whale; its spout lights up when it works
+  deepseek: `
+    <rect class="ant-on" x="3" y="-2" width="4" height="1"/><rect class="ant-on" x="4.5" y="-1" width="1" height="3"/>
+    <rect x="3" y="3" width="9" height="1"/><rect x="1" y="4" width="13" height="6"/><rect x="2" y="10" width="11" height="1"/>
+    <rect x="13" y="5" width="2" height="2"/><rect x="14" y="2" width="2" height="4"/><rect x="15" y="1" width="1" height="2"/>
+    <g class="eyes"><rect class="cut" x="4" y="5" width="2" height="2"/></g>
+    <rect class="cut mouth" x="2" y="8" width="5" height="1"/><rect class="cut smile" x="7" y="7" width="1" height="1"/>
+    <rect class="arm arm-l" x="5" y="11" width="2" height="2"/><rect class="arm arm-r" x="9" y="11" width="2" height="2"/>`,
+  // A local model: a llama; its ears twitch when it works
+  local: `
+    <rect class="ant-on" x="2" y="-3" width="1" height="1"/><rect class="ant-on" x="5" y="-3" width="1" height="1"/>
+    <rect x="2" y="-2" width="1" height="2"/><rect x="5" y="-2" width="1" height="2"/>
+    <rect x="1" y="0" width="6" height="4"/><rect x="0" y="2" width="1" height="2"/>
+    <g class="eyes"><rect class="cut" x="2" y="1" width="1" height="1"/><rect class="cut" x="5" y="1" width="1" height="1"/></g>
+    <rect class="cut smile" x="1" y="3" width="2" height="1"/>
+    <rect x="3" y="4" width="3" height="4"/><rect x="3" y="7" width="11" height="4"/><rect x="14" y="7" width="1" height="2"/>
+    <rect class="arm arm-l" x="4" y="11" width="2" height="3"/><rect x="7" y="11" width="1" height="3"/>
+    <rect class="arm arm-r" x="11" y="11" width="2" height="3"/><rect x="13" y="11" width="1" height="3"/>`,
+  // ChatGPT (Codex): a robot with a visor
+  chatgpt: `
+    <rect class="ant-on" x="3" y="-2" width="2" height="1"/><rect class="ant-on" x="11" y="-2" width="2" height="1"/>
+    <rect x="4" y="-1" width="1" height="3"/><rect x="11" y="-1" width="1" height="3"/>
+    <rect x="3" y="2" width="10" height="1"/><rect x="2" y="3" width="12" height="8"/>
+    <g class="eyes"><rect class="cut" x="3" y="5" width="10" height="2"/></g>
+    <rect x="5" y="5" width="1" height="2"/><rect x="10" y="5" width="1" height="2"/>
+    <rect class="cut mouth" x="6" y="9" width="4" height="1"/>
+    <rect class="arm arm-l" x="0" y="5" width="2" height="5"/><rect class="arm arm-r" x="14" y="5" width="2" height="5"/>
+    <rect x="4" y="11" width="3" height="2"/><rect x="9" y="11" width="3" height="2"/>`,
+};
+
+/** Which AI a member's terminal runs. Claude when we have not heard from that terminal yet. */
+const agentOf = (member) => [...S.panes.values()].find((p) => p.member === member)?.agent || 'claude';
+
+/** The AI name of whoever wrote a message: "DeepSeek", "ChatGPT"… */
+const aiName = (member) => agentLabel(agentOf(member));
+
+const botSvg = (agent = 'claude') => `
+<svg class="bot" viewBox="-2 -3 26 19" shape-rendering="crispEdges" aria-hidden="true">
+  <g class="body">${BOT_BODIES[agent] || BOT_BODIES.claude}</g>
   <rect class="spark s1" x="16" y="0" width="2" height="2"/>
   <rect class="spark s2" x="-2" y="1" width="1" height="1"/>
   <text class="zz z1" x="15.5" y="5" style="font-size:6px">z</text>
@@ -1460,11 +1731,12 @@ function paneState(p) {
 
 function buildHead(p) {
   const bot = document.createElement('div');
-  bot.innerHTML = BOT_SVG;
+  bot.innerHTML = botSvg(p.agent);
   p.ui = {
     bot: bot.firstElementChild,
     name: h('span', { class: 'who-name' }, splitMember(p.member)[0]),
     label: splitMember(p.member)[1] ? h('span', { class: 'who-label' }, `· ${splitMember(p.member)[1]}`) : null,
+    ai: h('span', { class: 'who-ai' }, agentLabel(p.agent)),
     state: h('span', { class: 'who-state' }),
     intent: h('div', { class: 'intent' }),
     files: h('div', { class: 'files' }),
@@ -1473,7 +1745,7 @@ function buildHead(p) {
   };
   p.head.append(
     p.ui.bot,
-    h('div', { class: 'who-main' }, h('div', { class: 'who-line' }, p.ui.name, p.ui.label, p.ui.state), p.ui.intent, p.ui.files),
+    h('div', { class: 'who-main' }, h('div', { class: 'who-line' }, p.ui.name, p.ui.label, p.ui.ai, p.ui.state), p.ui.intent, p.ui.files),
     p.ui.sideEl
   );
 }
@@ -1514,7 +1786,7 @@ function updateHead(p) {
     p.head.className = `pane-head st-${st}`;
     p.ui.state.textContent = p.local && st !== 'offline' ? `${STATE_LABEL[st]} · you` : STATE_LABEL[st];
   }
-  const intent = m?.intent || (p.local ? 'Type in the terminal to ask Claude for something.' : 'Has not asked for anything yet.');
+  const intent = m?.intent || (p.local ? `Type in the terminal to ask ${agentLabel(p.agent)} for something.` : 'Has not asked for anything yet.');
   if (p.ui.intent.textContent !== intent) {
     p.ui.intent.textContent = intent;
     p.ui.intent.title = m?.intent || '';

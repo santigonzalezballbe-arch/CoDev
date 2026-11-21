@@ -24,6 +24,28 @@
         </label>
 
         <div class="field app-only">
+          <span class="label">Your AI</span>
+          <div id="ai-switch" class="switch" role="radiogroup" aria-label="Your AI"></div>
+          <p class="hint" id="ai-hint"></p>
+        </div>
+
+        <div id="ai-credentials" class="app-only ai-credentials">
+          <div class="field" id="ai-key-field" hidden>
+            <span class="label">DeepSeek API key</span>
+            <input id="agent-key" type="password" placeholder="sk-..." spellcheck="false" autocomplete="off" aria-label="DeepSeek API key" />
+            <p class="hint" id="ai-key-hint"></p>
+          </div>
+
+          <div class="field" id="ai-model-field" hidden>
+            <span class="label" id="ai-model-label">Model</span>
+            <select id="ai-model" aria-label="Model"></select>
+            <p class="hint" id="ai-model-hint"></p>
+          </div>
+        </div>
+
+        <p class="note app-only" id="ai-note" hidden></p>
+
+        <div class="field app-only">
           <span class="label">Where you will work</span>
           <div class="switch" role="radiogroup" aria-label="Project source">
             <button type="button" class="opt" data-src="github" role="radio">GitHub repository</button>
@@ -101,7 +123,7 @@
       <button id="invite" class="bar-btn quiet">Invite</button>
       <button id="history-btn" class="bar-btn quiet">History</button>
       <button id="share" class="bar-btn quiet" hidden></button>
-      <button id="add-claude" class="bar-btn" title="Open another Claude Code session of your own">Another Claude</button>
+      <button id="add-claude" class="bar-btn" title="Open another AI of your own: Claude, DeepSeek, a local model or ChatGPT">Another AI</button>
       <a id="get-app" class="bar-btn quiet web-only" href="https://github.com/santigonzalezballbe-arch/CoDev#desktop-app-recommended" target="_blank">Get the app</a>
       <div id="view-switch" class="view-switch" role="radiogroup" aria-label="View">
         <button type="button" data-view="terminal" role="radio">Terminal</button>
@@ -112,13 +134,26 @@
     </header>
     <div id="alert" class="alert" hidden></div>
 
-    <!-- Naming another Claude of yours: "Ana · tests" instead of "Ana 2". -->
+    <!-- Naming another AI of yours: "Ana · tests" instead of "Ana 2", and which AI it runs. -->
     <div id="new-claude" class="new-claude" hidden role="dialog" aria-labelledby="nc-title">
       <form id="new-claude-form">
-        <h2 id="nc-title" class="nc-title">Name this Claude</h2>
-        <p class="nc-help">It shows next to your name, so the team knows what each of your Claudes is on.</p>
+        <h2 id="nc-title" class="nc-title">Another AI</h2>
+        <p class="nc-help" id="nc-help">It shows next to your name, so the team knows what each of your AIs is on.</p>
         <input id="nc-name" maxlength="20" autocomplete="off" spellcheck="false" aria-label="Name" />
         <div id="nc-chips" class="nc-chips"></div>
+        <div class="nc-field app-only">
+          <span class="nc-label">AI</span>
+          <div id="nc-ai" class="nc-chips" role="radiogroup" aria-label="AI"></div>
+        </div>
+        <div class="nc-field app-only" id="nc-key" hidden>
+          <span class="nc-label">DeepSeek key</span>
+          <input id="nc-key-input" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" aria-label="DeepSeek API key" />
+        </div>
+        <div class="nc-field app-only" id="nc-model" hidden>
+          <span class="nc-label">Model</span>
+          <select id="nc-model-select" aria-label="Model"></select>
+        </div>
+        <p class="nc-note app-only" id="nc-note" hidden></p>
         <p id="nc-error" class="nc-error" hidden></p>
         <div class="nc-actions">
           <button type="button" id="nc-cancel" class="bar-btn quiet">Cancel</button>
@@ -149,7 +184,7 @@
           <textarea id="note-text" rows="1" placeholder="Write a message" autocomplete="off"></textarea>
           <button type="submit" class="send">Send</button>
         </div>
-        <p class="compose-hint">Their Claude reads the messages sent to them at its next prompt. Shift+Enter for a new line.</p>
+        <p class="compose-hint">Their AI reads the messages sent to them at its next prompt. Shift+Enter for a new line.</p>
       </form>
     </aside>
 
