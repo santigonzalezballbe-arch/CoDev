@@ -562,17 +562,115 @@ async function knock(r) {
 
 if (!WEB) setInterval(checkFound, 8000); // rooms on the network show up within a few seconds
 
-// The user's repositories (via gh), suggested while typing.
-api.ghRepos().then((r) => {
-  const hint = $('#repo-hint');
-  if (r.ok) {
-    $('#repo-list').replaceChildren(...r.repos.map((x) => h('option', { value: x.nameWithOwner }, x.description || (x.isPrivate ? 'Privat' : ''))));
-    if (!form.repo.value) hint.textContent = `Signed in to GitHub as ${r.login}. Start typing to see your ${r.repos.length} repositories.`;
-  } else if (!form.repo.value) {
-    hint.textContent = 'Paste a repository URL. Run `gh auth login` to see your own here too.';
-  }
-  checkRepo();
+// The user's repositories (their own, the ones they collaborate on, their organizations'), in a list
+// under the input. Sign in with GitHub to see them and to clone private ones.
+const repos = { all: [], open: false, active: -1, shown: [] };
+const repoInput = form.repo;
+const repoList = $('#repo-list');
+const repoArrow = $('#repo-arrow');
+
+function renderRepoList() {
+  const q = repoInput.value.trim().toLowerCase();
+  // Opened with the arrow, or the text is a repository already chosen: show everything.
+  const exact = repos.all.some((x) => x.nameWithOwner.toLowerCase() === q);
+  repos.shown = (q && !exact ? repos.all.filter((x) => x.nameWithOwner.toLowerCase().includes(q)) : repos.all).slice(0, 200);
+  if (repos.active >= repos.shown.length) repos.active = repos.shown.length - 1;
+  repoList.replaceChildren(
+    ...(repos.shown.length
+      ? repos.shown.map((x, i) =>
+          h(
+            'li',
+            { role: 'option', id: `repo-opt-${i}`, 'aria-selected': i === repos.active ? 'true' : 'false', onmousedown: (e) => (e.preventDefault(), pickRepo(x)) },
+            h('span', { class: 'name' }, x.nameWithOwner),
+            x.description || x.isPrivate ? h('span', { class: 'desc' }, [x.isPrivate ? 'Private' : '', x.description].filter(Boolean).join(' · ')) : null
+          )
+        )
+      : [h('li', { class: 'empty' }, repos.all.length ? 'No repository matches.' : 'Sign in with GitHub to see your repositories, or paste a URL.')])
+  );
+  repoList.hidden = !repos.open;
+  repoInput.setAttribute('aria-expanded', String(repos.open));
+  repoArrow.setAttribute('aria-expanded', String(repos.open));
+  if (repos.active >= 0) repoList.children[repos.active]?.scrollIntoView({ block: 'nearest' });
+  else if (repos.open) repoList.scrollIntoView({ block: 'nearest' }); // the start screen scrolls: bring the list into view
+}
+function openRepoList(open) {
+  repos.open = open;
+  if (!open) repos.active = -1;
+  renderRepoList();
+}
+function pickRepo(x) {
+  repoInput.value = x.nameWithOwner;
+  openRepoList(false);
+  repoInput.dispatchEvent(new Event('input', { bubbles: true }));
+}
+repoArrow.addEventListener('mousedown', (e) => {
+  e.preventDefault(); // keep the focus in the input
+  openRepoList(!repos.open);
+  repoInput.focus();
 });
+repoInput.addEventListener('input', () => {
+  if (document.activeElement === repoInput && !repos.open && repos.all.length) repos.open = true;
+  renderRepoList();
+});
+repoInput.addEventListener('focus', () => repos.all.length && !repoInput.value && openRepoList(true));
+repoInput.addEventListener('blur', () => openRepoList(false));
+repoInput.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!repos.open) return openRepoList(true);
+    const n = repos.shown.length;
+    if (n) repos.active = e.key === 'ArrowDown' ? (repos.active + 1) % n : repos.active <= 0 ? n - 1 : repos.active - 1;
+    renderRepoList();
+  } else if (e.key === 'Enter' && repos.open && repos.active >= 0) {
+    e.preventDefault();
+    pickRepo(repos.shown[repos.active]);
+  } else if (e.key === 'Escape' && repos.open) {
+    e.preventDefault();
+    openRepoList(false);
+  }
+});
+
+async function loadRepos() {
+  const r = await api.ghRepos();
+  const hint = $('#repo-hint');
+  repos.all = r.repos || [];
+  $('#gh-login').hidden = WEB || r.ok;
+  if (r.ok && !form.repo.value) {
+    hint.replaceChildren(`Signed in to GitHub as ${r.login}. `, h('strong', {}, `${r.repos.length} repositories`), ' in the list.');
+    if (r.own) hint.append(' ', h('a', { href: '#', onclick: (e) => (e.preventDefault(), api.ghLogout().then(loadRepos)) }, 'Sign out'));
+  } else if (!r.ok && !form.repo.value) {
+    hint.textContent = 'Paste a repository URL, or sign in with GitHub to see yours and clone private ones.';
+  }
+  renderRepoList();
+  checkRepo();
+}
+
+let ghLoginBusy = false;
+$('#gh-login-btn').addEventListener('click', async () => {
+  const btn = $('#gh-login-btn');
+  const msg = $('#gh-login-msg');
+  if (ghLoginBusy) {
+    api.ghLoginCancel();
+    return;
+  }
+  ghLoginBusy = true;
+  btn.textContent = 'Cancel';
+  try {
+    const { code, url } = await api.ghLoginStart();
+    api.copy(code);
+    msg.replaceChildren('Paste this code at ', h('strong', {}, url.replace(/^https:\/\//, '')), ' (copied): ', h('span', { class: 'gh-code' }, code));
+    const { login } = await api.ghLoginWait();
+    msg.textContent = login ? `Signed in as ${login}.` : 'Signed in.';
+    await loadRepos();
+  } catch (ex) {
+    msg.textContent = String(ex.message || ex).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  } finally {
+    ghLoginBusy = false;
+    btn.textContent = 'Sign in with GitHub';
+  }
+});
+if (!WEB) loadRepos();
+else $('#gh-login').hidden = true;
 
 const checkRepo = debounce(async () => {
   const hint = $('#repo-hint');

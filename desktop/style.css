@@ -77,6 +77,30 @@ button { cursor: pointer; }
 .half button:focus-visible, .half a:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 .pick { display: flex; gap: 12px; align-items: end; }
 
+/* Repository picker: an input with its own list (a <datalist> arrow does nothing in Electron). */
+.combo { position: relative; }
+.half .combo input { padding-right: 40px; }
+.combo-arrow {
+  position: absolute; right: 0; bottom: 6px; width: 36px; height: 36px; border: 0; background: transparent; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%);
+  background-position: calc(50% - 3px) 50%, calc(50% + 3px) 50%; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat;
+}
+.combo-arrow[aria-expanded='true'] { transform: rotate(180deg); }
+.combo-list {
+  position: absolute; z-index: 20; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px 0; list-style: none;
+  max-height: 300px; overflow-y: auto; background: var(--ground); color: var(--ink);
+  border: 2px solid var(--ink); box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
+}
+.combo-list li { padding: 9px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.combo-list li .name { font: 600 17px/1.3 var(--display); }
+.combo-list li .desc { font: 400 14px/1.35 var(--text); opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-list li[aria-selected='true'], .combo-list li:hover { background: var(--step); }
+.combo-list .empty { cursor: default; opacity: 0.7; font: italic 400 15px/1.4 var(--text); }
+.gh-login { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 6px; }
+.gh-login[hidden] { display: none; }
+.gh-login .hint { margin: 0; }
+.gh-code { font: 800 22px/1 var(--display); letter-spacing: 0.08em; user-select: all; }
+
 /* Teammates found on the same project: knock on their room. */
 .found { display: flex; flex-direction: column; gap: 10px; border-left: 3px solid var(--ink); padding: 4px 0 4px 14px; }
 .found p { margin: 0; font: 400 17px/1.45 var(--text); }

@@ -84,3 +84,25 @@ Left to do: try it in the real app; the "Done" badge in the head stays until you
 Request: publish a release with the "Done" veil.
 Changed: package.json, package-lock.json (version 0.4.6); tag v0.4.6 pushed, the Release workflow builds the installers.
 Left to do: update from 0.4.5 and check the veil in the real app.
+
+## 2026-11-22 20:10
+
+Petició: millorar el vídeo promocional de TikTok (l'escena «Everything.» amb tres caixes amb ✕ era pobra i faltava profunditat en general).
+Canvis (fora del repo, a `~/Videos/codev-demo/promo/video/src/Promo.tsx`): l'escena del problema ara té tres il·lustracions SVG animades (dues IA xocant amb el mateix fitxer, codi esborrat i reescrit, rellotge nocturn girant); fons amb graella de punts i glifs de codi flotant amb parallax a totes les escenes; zoom lent de càmera; entrades «pop» amb desenfocament; captures de l'app en perspectiva 3D amb ombres. Nous renders: `~/Videos/codev-demo/codev-promo-tiktok-v2.mp4` i `codev-promo-v2.mp4` (els antics es conserven).
+Pendent: revisar-lo i, si agrada, substituir els vídeos publicats.
+
+## 2026-11-22 20:45
+
+Petició: un company afegit com a col·laborador no pot entrar al repo privat des de CoDev; i la fletxa del selector de repositoris no fa res.
+Causa: el clonatge depenia de `gh` amb sessió iniciada (si no, `git clone` anònim, que falla amb repos privats); `gh repo list` tampoc mostra els repos on ets col·laborador; la fletxa era la d'un `<datalist>`, que a Electron no obre res.
+Canvis:
+- `desktop/main.js`: inici de sessió amb GitHub (OAuth device flow, IPC `gh-login-start/wait/cancel`, `gh-logout`); token xifrat amb safeStorage (o només en memòria si no hi ha clauer). Llista de repos via API `/user/repos?affiliation=owner,collaborator,organization_member`. Clonatge amb el token (per variables `GIT_CONFIG_*`, no s'escriu a `.git/config`); si falla, diu que cal acceptar la invitació a `github.com/<repo>/invitations`. Les terminals pròpies (no les dels convidats) reben el token per a `git push`/`gh`; el descobriment de sales també.
+- `desktop/preload.cjs`: les noves crides.
+- `desktop/index.html`, `renderer.js`, `style.css`: desplegable propi (fletxa, filtre, teclat) i botó "Sign in with GitHub" que mostra i copia el codi.
+Proves: `npm test` 49/49; a l'app des del codi la fletxa obre la llista (7 repos).
+Pendent: `GITHUB_CLIENT_ID` és un marcador: cal registrar una OAuth App de CoDev amb "Device flow" activat i posar-hi el Client ID. Després, release nova. Sense commit.
+
+## 2026-11-22 20:55
+Petició: publicar la release amb l'inici de sessió de GitHub.
+Canvis: `desktop/main.js` amb el Client ID real de l'OAuth App de CoDev (device flow comprovat contra GitHub); `package.json` i `package-lock.json` a 0.4.8; etiqueta `v0.4.8`.
+Pendent: que el company actualitzi a 0.4.8, accepti la invitació del repo i faci "Sign in with GitHub".

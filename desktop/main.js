@@ -205,15 +205,124 @@ function repoDest(full) {
   return path.join(WORKSPACE, `${owner}-${name}`);
 }
 
-ipcMain.handle('gh-repos', async () => {
-  const PATH = await getUserPath();
+/* GitHub sign-in (OAuth device flow): CoDev shows a code, the browser opens github.com/login/device,
+ * the user pastes it and approves. The token is saved encrypted (safeStorage) and is used to list the
+ * repositories (also the ones you are a collaborator on), to clone private ones and, in your own
+ * terminals, for git push / gh. Without it, an existing `gh` session is used. */
+const GITHUB_CLIENT_ID = process.env.CODEV_GITHUB_CLIENT_ID || 'Ov23liG2v6tB0doYh76h';
+let ghSessionToken = null; // when there is no keychain, the token lives only until CoDev closes
+let ghAuthFlow = null; // { device_code, interval, expires } while the user is signing in
+
+async function githubToken() {
+  const saved = getKey('github') || ghSessionToken;
+  if (saved) return { token: saved, own: true };
   try {
-    const login = (await run('gh', ['api', 'user', '--jq', '.login'], { env: { ...process.env, PATH } })).trim();
-    const list = JSON.parse(
-      await run('gh', ['repo', 'list', '--limit', '100', '--json', 'nameWithOwner,description,isPrivate,updatedAt'], { env: { ...process.env, PATH } })
-    );
-    return { ok: true, login, repos: list };
-  } catch {
+    const t = (await run('gh', ['auth', 'token'], { env: { ...process.env, PATH: await getUserPath(), GH_PROMPT_DISABLED: '1' } })).trim();
+    if (t) return { token: t, own: false };
+  } catch {}
+  return null;
+}
+
+async function githubApi(pathname, token) {
+  const res = await fetch(`https://api.github.com${pathname}`, {
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': 'CoDev' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw Object.assign(new Error(`GitHub answered ${res.status}`), { status: res.status });
+  return res.json();
+}
+
+/** git reads these and sends the token to github.com only; nothing is written to .git/config. */
+function gitTokenEnv(token) {
+  if (!token) return {};
+  const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+  return {
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+    GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
+    GH_TOKEN: token,
+  };
+}
+/** Env for the user's own terminals: only the token CoDev got from the sign-in (gh already handles its own). */
+const ownGithubEnv = () => gitTokenEnv(getKey('github') || ghSessionToken);
+
+function saveGithubToken(token) {
+  if (!hasSecureStorage()) {
+    ghSessionToken = token;
+    return false;
+  }
+  const keys = readKeys();
+  if (token) keys.github = safeStorage.encryptString(token).toString('base64');
+  else delete keys.github;
+  fs.mkdirSync(path.dirname(keysFile()), { recursive: true });
+  fs.writeFileSync(keysFile(), JSON.stringify(keys), { mode: 0o600 });
+  return true;
+}
+
+ipcMain.handle('gh-login-start', async () => {
+  const res = await fetch('https://github.com/login/device/code', {
+    method: 'POST',
+    headers: { accept: 'application/json', 'content-type': 'application/json' },
+    body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: 'repo read:org' }),
+    signal: AbortSignal.timeout(15000),
+  }).catch(() => null);
+  const body = res && (await res.json().catch(() => null));
+  if (!body?.device_code) throw new Error(`Could not reach GitHub to sign in${body?.error_description ? `: ${body.error_description}` : '.'}`);
+  ghAuthFlow = { device_code: body.device_code, interval: body.interval || 5, expires: Date.now() + body.expires_in * 1000 };
+  shell.openExternal(body.verification_uri);
+  return { code: body.user_code, url: body.verification_uri };
+});
+
+/** Waits until the user approves in the browser (or the code expires) and returns the login. */
+ipcMain.handle('gh-login-wait', async () => {
+  const flow = ghAuthFlow;
+  if (!flow) throw new Error('Start the sign-in again.');
+  while (ghAuthFlow === flow && Date.now() < flow.expires) {
+    await new Promise((r) => setTimeout(r, flow.interval * 1000));
+    const res = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, device_code: flow.device_code, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }),
+      signal: AbortSignal.timeout(15000),
+    }).catch(() => null);
+    const body = res && (await res.json().catch(() => null));
+    if (!body) continue;
+    if (body.access_token) {
+      ghAuthFlow = null;
+      saveGithubToken(body.access_token);
+      const user = await githubApi('/user', body.access_token).catch(() => ({}));
+      return { login: user.login || null };
+    }
+    if (body.error === 'slow_down') flow.interval = body.interval || flow.interval + 5;
+    else if (body.error === 'access_denied') throw new Error('The sign-in was cancelled on GitHub.');
+    else if (body.error && body.error !== 'authorization_pending') throw new Error(body.error_description || body.error);
+  }
+  if (ghAuthFlow === flow) ghAuthFlow = null;
+  throw new Error('The code expired. Try signing in again.');
+});
+ipcMain.handle('gh-login-cancel', () => {
+  ghAuthFlow = null;
+});
+ipcMain.handle('gh-logout', () => {
+  ghSessionToken = null;
+  saveGithubToken(null);
+});
+
+ipcMain.handle('gh-repos', async () => {
+  const auth = await githubToken();
+  if (!auth) return { ok: false, repos: [] };
+  try {
+    const user = await githubApi('/user', auth.token);
+    const repos = [];
+    // Your own, the ones you were added to as a collaborator and your organizations' ones.
+    for (let page = 1; page <= 5; page++) {
+      const batch = await githubApi(`/user/repos?affiliation=owner,collaborator,organization_member&sort=updated&per_page=100&page=${page}`, auth.token);
+      repos.push(...batch.map((r) => ({ nameWithOwner: r.full_name, description: r.description, isPrivate: r.private, updatedAt: r.updated_at })));
+      if (batch.length < 100) break;
+    }
+    return { ok: true, login: user.login, own: auth.own, repos };
+  } catch (err) {
+    if (err.status === 401 && auth.own) saveGithubToken(null); // revoked on GitHub: ask to sign in again
     return { ok: false, repos: [] };
   }
 });
@@ -231,16 +340,18 @@ ipcMain.handle('prepare-repo', async (_e, input) => {
   const dest = repoDest(full);
   if (fs.existsSync(path.join(dest, '.git'))) return { root: dest, full, cloned: false };
   fs.mkdirSync(WORKSPACE, { recursive: true });
-  const env = { ...process.env, PATH: await getUserPath(), GIT_TERMINAL_PROMPT: '0' };
+  const auth = await githubToken();
+  const existed = fs.existsSync(dest);
+  const env = { ...process.env, PATH: await getUserPath(), GIT_TERMINAL_PROMPT: '0', ...gitTokenEnv(auth?.token) };
   try {
-    // With gh, private repositories can be cloned too, using the user's session.
-    await run('gh', ['repo', 'clone', full, dest], { env, timeout: 300_000 });
-  } catch {
-    try {
-      await run('git', ['clone', `https://github.com/${full}.git`, dest], { env, timeout: 300_000 });
-    } catch (err) {
-      throw new Error(`Could not clone ${full}. Is it private, or does it not exist? (${String(err.stderr || err.message).trim().split('\n').pop()})`);
-    }
+    await run('git', ['clone', `https://github.com/${full}.git`, dest], { env, timeout: 300_000 });
+  } catch (err) {
+    if (!existed) fs.rmSync(dest, { recursive: true, force: true }); // a failed clone leaves a half folder
+    const why = String(err.stderr || err.message).trim().split('\n').pop();
+    if (!auth) throw new Error(`Could not clone ${full}. If it is private, sign in with GitHub first. (${why})`);
+    throw new Error(
+      `Could not clone ${full} with your GitHub account. If you were added as a collaborator, accept the invitation at github.com/${full}/invitations and try again. (${why})`
+    );
   }
   return { root: dest, full, cloned: true };
 });
@@ -564,7 +675,7 @@ ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agen
     cols,
     rows,
     cwd,
-    env: { ...base, PATH, ...env, ...extraEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'CoDev' },
+    env: { ...base, PATH, ...ownGithubEnv(), ...env, ...extraEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'CoDev' },
   });
   ptys.set(id, proc);
   const sender = e.sender;
@@ -754,7 +865,10 @@ async function identityOf(root) {
   const id = await projectIdentity(root, run);
   return { ...id, fp: fingerprint(id) };
 }
-const ghEnv = async () => ({ ...process.env, PATH: await getUserPath(), GH_PROMPT_DISABLED: '1' });
+const ghEnv = async () => {
+  const own = getKey('github') || ghSessionToken;
+  return { ...process.env, PATH: await getUserPath(), GH_PROMPT_DISABLED: '1', ...(own ? { GH_TOKEN: own } : {}) };
+};
 
 async function announceRoom() {
   if (!hostCtx || !hostedServer) return;

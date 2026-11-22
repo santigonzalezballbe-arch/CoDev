@@ -55,9 +55,17 @@
 
         <div id="src-github" class="field app-only">
           <span class="label">Repository</span>
-          <input name="repo" list="repo-list" placeholder="owner/repository or URL" spellcheck="false" />
-          <datalist id="repo-list"></datalist>
+          <div class="combo">
+            <input name="repo" placeholder="owner/repository or URL" spellcheck="false" autocomplete="off"
+              role="combobox" aria-expanded="false" aria-controls="repo-list" aria-autocomplete="list" />
+            <button type="button" class="combo-arrow" id="repo-arrow" aria-label="Show your repositories" tabindex="-1"></button>
+            <ul id="repo-list" class="combo-list" role="listbox" hidden></ul>
+          </div>
           <p class="hint" id="repo-hint"></p>
+          <div class="gh-login" id="gh-login">
+            <button type="button" class="small" id="gh-login-btn">Sign in with GitHub</button>
+            <span id="gh-login-msg" class="hint" aria-live="polite"></span>
+          </div>
         </div>
 
         <div id="found" class="found app-only" hidden aria-live="polite"></div>
