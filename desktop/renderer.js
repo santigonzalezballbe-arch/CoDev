@@ -22,6 +22,7 @@ const api = window.codev || {
   copy: (text) => navigator.clipboard?.writeText(text).catch(noop),
   ghRepos: async () => ({ ok: false, repos: [] }),
   discover: async () => ({ fp: null, rooms: [] }),
+  onDiscoveryWarning: noop,
   repoStatus: async () => ({ valid: false }),
   ptyCreate: ({ id, cols, rows, env }) =>
     new Promise((resolve, reject) => {
@@ -948,6 +949,8 @@ async function toggleShare() {
     renderShare();
   }
 }
+
+api.onDiscoveryWarning((text) => flash(text));
 
 // First-time download of cloudflared: show the progress on whichever button started it.
 api.onShareProgress((p) => {

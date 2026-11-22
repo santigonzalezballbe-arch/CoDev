@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('codev', {
   ghLoginCancel: () => ipcRenderer.invoke('gh-login-cancel'),
   ghLogout: () => ipcRenderer.invoke('gh-logout'),
   discover: (where) => ipcRenderer.invoke('discover', where),
+  onDiscoveryWarning: (cb) => ipcRenderer.on('discovery-warning', (_e, text) => cb(text)),
   repoStatus: (input) => ipcRenderer.invoke('repo-status', input),
   prepareRepo: (input) => ipcRenderer.invoke('prepare-repo', input),
   setupProject: (opts) => ipcRenderer.invoke('setup-project', opts),

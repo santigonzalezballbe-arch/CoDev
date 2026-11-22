@@ -865,10 +865,8 @@ async function identityOf(root) {
   const id = await projectIdentity(root, run);
   return { ...id, fp: fingerprint(id) };
 }
-const ghEnv = async () => {
-  const own = getKey('github') || ghSessionToken;
-  return { ...process.env, PATH: await getUserPath(), GH_PROMPT_DISABLED: '1', ...(own ? { GH_TOKEN: own } : {}) };
-};
+// The sign-in token, or the one from an existing `gh` session: the API is called directly, so `gh` is optional.
+const ghToken = async () => (await githubToken())?.token || null;
 
 async function announceRoom() {
   if (!hostCtx || !hostedServer) return;
@@ -884,11 +882,15 @@ async function announceRoom() {
   if (!repo || !tunnel?.url) return;
   const publish = async () => {
     if (!hostCtx || !tunnel?.url) return;
+    const token = await ghToken();
     try {
-      await publishGithubRoom({ repo, name: hostCtx.name, room: hostCtx.room, url: tunnel.url, env: await ghEnv() });
+      await publishGithubRoom({ repo, name: hostCtx.name, room: hostCtx.room, url: tunnel.url, token });
       ghPublished = { repo, name: hostCtx.name };
     } catch (err) {
       console.warn(`CoDev: could not list the room in ${repo} on GitHub:`, err.message);
+      // Tell the host: otherwise teammates on other networks just never see the room.
+      const why = token ? `you need write access to ${repo} (${err.message})` : 'sign in with GitHub on the start screen';
+      win?.webContents.send('discovery-warning', `Teammates on other networks will not find this room: ${why}. The invite link still works.`);
     }
   };
   await publish();
@@ -901,7 +903,7 @@ async function unannounceGithub() {
   ghTimer = null;
   const p = ghPublished;
   ghPublished = null;
-  if (p) await unpublishGithubRoom({ ...p, env: await ghEnv() });
+  if (p) await unpublishGithubRoom({ ...p, token: await ghToken() });
 }
 
 const knockHooks = {
@@ -926,7 +928,7 @@ ipcMain.handle('discover', async (_e, { root, repo } = {}) => {
   const fp = fingerprint(id);
   if (!fp.r && !fp.g) return { fp, rooms: [] };
   const found = lanDiscovery().peers().filter((p) => sameProject(fp, p));
-  if (id.repo) found.push(...(await listGithubRooms({ repo: id.repo, env: await ghEnv() }).catch(() => [])));
+  if (id.repo) found.push(...(await listGithubRooms({ repo: id.repo, token: await ghToken() }).catch(() => [])));
   const seen = new Set();
   const rooms = [];
   await Promise.all(

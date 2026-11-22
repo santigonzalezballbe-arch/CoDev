@@ -106,3 +106,15 @@ Pendent: `GITHUB_CLIENT_ID` és un marcador: cal registrar una OAuth App de CoDe
 Petició: publicar la release amb l'inici de sessió de GitHub.
 Canvis: `desktop/main.js` amb el Client ID real de l'OAuth App de CoDev (device flow comprovat contra GitHub); `package.json` i `package-lock.json` a 0.4.8; etiqueta `v0.4.8`.
 Pendent: que el company actualitzi a 0.4.8, accepti la invitació del repo i faci "Sign in with GitHub".
+
+## 2026-11-22 21:40
+
+Petició: la detecció de companys al mateix projecte no funcionava amb DiOrg entre dos ordinadors a xarxes diferents.
+Causa: el camí per GitHub feia servir la comanda `gh`; si un ordinador no la tenia (p. ex. connectat amb "Sign in with GitHub"), fallava en silenci a l'amfitrió i al visitant.
+Canvis:
+- `desktop/discovery.js`: `ghApi` crida directament `api.github.com` amb `fetch` i el token; sense token només llegeix (repos públics).
+- `desktop/main.js`: fa servir `githubToken()` (token de l'inici de sessió o de `gh auth token`); si no pot publicar la sala, avisa l'amfitrió (`discovery-warning`).
+- `desktop/preload.cjs`, `desktop/renderer.js`: mostren l'avís. `README.md`: ja no cal `gh`.
+Proves: `npm test` 49/49; publicar, llistar i esborrar una sala real a DiOrg sense `gh` al PATH.
+Publicat com a v0.4.9.
+Pendent: tornar a provar entre dues xarxes amb la 0.4.9 als dos ordinadors (l'amfitrió ha de prémer "Share online").

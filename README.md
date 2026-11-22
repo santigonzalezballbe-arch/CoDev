@@ -99,7 +99,7 @@ You don't always need an invite. When you choose a repository or a folder on the
 
 - **Same project** means the same first commit (identical in every clone) or the same GitHub repository. Only hashes of these are sent, never the repository's name.
 - **On your network**, an app that hosts a room announces it every few seconds (UDP multicast on `239.255.43.219:43219`). Networks that isolate devices from each other, such as some public Wi-Fi, block this.
-- **On another network**, while a room is shared online, the host's app writes a hidden ref in the GitHub repository, `refs/codev/rooms/<name>`, whose commit message holds the room's public link. It is not a branch, plain clones do not fetch it, and only people who can read the repository see it. It needs [`gh`](https://cli.github.com) signed in with write access to the repository. The app refreshes it every 10 minutes, removes it when you stop sharing or close CoDev, and listings older than 30 minutes are ignored.
+- **On another network**, while a room is shared online, the host's app writes a hidden ref in the GitHub repository, `refs/codev/rooms/<name>`, whose commit message holds the room's public link. It is not a branch, plain clones do not fetch it, and only people who can read the repository see it. The host needs to be signed in to GitHub in CoDev (or with [`gh`](https://cli.github.com)) with write access to the repository, and the app warns them if it cannot list the room; teammates need read access. The app refreshes it every 10 minutes, removes it when you stop sharing or close CoDev, and listings older than 30 minutes are ignored.
 
 **Finding a room gives no access.** *Ask to join* knocks on the room: the host sees *"Maya wants to join this room"* with **Allow** and **Deny**, and only if they allow it does Maya's app receive the room key and go in. Requests expire after 90 seconds, and a room keeps at most 5 waiting at once.
 
@@ -243,7 +243,7 @@ npm test
 - **ChatGPT is experimental.** Codex must trust the folder before it runs CoDev's hooks; until then its edits are not locked. Testing it with a real OpenAI account is still pending.
 - Access control is one key per room, shared through the invite: there are no user accounts, and anyone holding the invite can watch. Rooms started with `codev server` without `--key` are open to anyone who can reach them.
 - Locks are per file, not per function or line.
-- Finding rooms on the same project needs multicast on the local network, or `gh` with write access to the GitHub repository and the room shared online. Rooms in a public repository are listed for anyone who can read it, but nobody gets in without the host's **Allow**.
+- Finding rooms on the same project needs multicast on the local network, or the host signed in to GitHub with write access to the repository and the room shared online. Rooms in a public repository are listed for anyone who can read it, but nobody gets in without the host's **Allow**.
 - `Bash` commands that change files (`sed`, `mv`...) are not blocked, only shown.
 
 ## Ideas for next versions

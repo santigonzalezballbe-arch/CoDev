@@ -12,7 +12,6 @@
 
 import crypto from 'node:crypto';
 import dgram from 'node:dgram';
-import { spawn } from 'node:child_process';
 
 export const LAN_GROUP = '239.255.43.219';
 export const LAN_PORT = 43219;
@@ -168,68 +167,68 @@ export function parseRoomMessage(message, now = Date.now()) {
   }
 }
 
-/** Runs `gh api` with an optional JSON body on stdin and returns the parsed answer. */
-export function ghApi(args, body, { env } = {}) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('gh', ['api', ...args, ...(body ? ['--input', '-'] : [])], { env });
-    let out = '';
-    let err = '';
-    const timer = setTimeout(() => proc.kill(), 15000);
-    proc.stdout.on('data', (d) => (out += d));
-    proc.stderr.on('data', (d) => (err += d));
-    proc.on('error', (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) return reject(new Error(err.trim() || `gh api exited with ${code}`));
-      try {
-        resolve(out.trim() ? JSON.parse(out) : null);
-      } catch {
-        resolve(out);
-      }
-    });
-    if (body) proc.stdin.end(JSON.stringify(body));
+/**
+ * Calls the GitHub REST API with the app's token (args like `gh api`: [path, '-X', method]).
+ * It talks to api.github.com directly, so it works without the `gh` command installed.
+ */
+export async function ghApi([pathname, , method = 'GET'], body, { token } = {}) {
+  if (!token && method !== 'GET') throw new Error('Not signed in to GitHub.');
+  const res = await fetch(`https://api.github.com/${pathname}`, {
+    method,
+    headers: {
+      ...(token ? { authorization: `Bearer ${token}` } : {}), // public repositories can be read without one
+      accept: 'application/vnd.github+json',
+      'user-agent': 'CoDev',
+      ...(body ? { 'content-type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(15000),
   });
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {}
+  if (!res.ok) throw new Error(`GitHub answered ${res.status}${data?.message ? `: ${data.message}` : ''}`);
+  return data;
 }
 
 /** Writes (or refreshes) this host's room in the repository. */
-export async function publishGithubRoom({ repo, name, room, url, env, api = ghApi }) {
+export async function publishGithubRoom({ repo, name, room, url, token, api = ghApi }) {
   const ref = roomRef(name);
   const tree = await api([`repos/${repo}/git/trees`, '-X', 'POST'], {
     tree: [{ path: 'room.json', mode: '100644', type: 'blob', content: JSON.stringify({ name, room, url }) }],
-  }, { env });
+  }, { token });
   const commit = await api([`repos/${repo}/git/commits`, '-X', 'POST'], {
     message: roomMessage({ name, room, url }),
     tree: tree.sha,
     parents: [],
-  }, { env });
+  }, { token });
   try {
-    await api([`repos/${repo}/git/refs/${ref}`, '-X', 'PATCH'], { sha: commit.sha, force: true }, { env });
+    await api([`repos/${repo}/git/refs/${ref}`, '-X', 'PATCH'], { sha: commit.sha, force: true }, { token });
   } catch {
-    await api([`repos/${repo}/git/refs`, '-X', 'POST'], { ref: `refs/${ref}`, sha: commit.sha }, { env });
+    await api([`repos/${repo}/git/refs`, '-X', 'POST'], { ref: `refs/${ref}`, sha: commit.sha }, { token });
   }
   return ref;
 }
 
 /** Removes this host's room from the repository (when the room closes or stops being shared). */
-export async function unpublishGithubRoom({ repo, name, env, api = ghApi }) {
-  await api([`repos/${repo}/git/refs/${roomRef(name)}`, '-X', 'DELETE'], null, { env }).catch(() => {});
+export async function unpublishGithubRoom({ repo, name, token, api = ghApi }) {
+  await api([`repos/${repo}/git/refs/${roomRef(name)}`, '-X', 'DELETE'], null, { token }).catch(() => {});
 }
 
 /** Rooms published in the repository: [{ name, room, url, updated, via: 'github' }]. */
-export async function listGithubRooms({ repo, env, api = ghApi, now = Date.now() }) {
+export async function listGithubRooms({ repo, token, api = ghApi, now = Date.now() }) {
   let refs;
   try {
-    refs = await api([`repos/${repo}/git/matching-refs/${REF_PREFIX.replace(/\/$/, '')}`], null, { env });
+    refs = await api([`repos/${repo}/git/matching-refs/${REF_PREFIX.replace(/\/$/, '')}`], null, { token });
   } catch {
     return [];
   }
   const rooms = await Promise.all(
     (Array.isArray(refs) ? refs : []).slice(0, 20).map(async (r) => {
       try {
-        const c = await api([`repos/${repo}/git/commits/${r.object.sha}`], null, { env });
+        const c = await api([`repos/${repo}/git/commits/${r.object.sha}`], null, { token });
         return parseRoomMessage(c.message, now);
       } catch {
         return null;
