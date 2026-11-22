@@ -22,6 +22,7 @@ import {
   unpublishGithubRoom,
   listGithubRooms,
 } from './discovery.js';
+import { checkLatest, installKind, install as installUpdate, RELEASES_PAGE } from './updater.js';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ptys = new Map(); // id -> process
@@ -921,6 +922,54 @@ function registerProtocol() {
   }
 }
 
+/* ---------- Updates from GitHub releases ---------- */
+// CODEV_FAKE_VERSION=0.0.1 makes this copy look old, to try the update notice.
+const currentVersion = () => process.env.CODEV_FAKE_VERSION || app.getVersion();
+const updateKind = () =>
+  installKind({ platform: process.platform, arch: process.arch, packaged: app.isPackaged, appImage: process.env.APPIMAGE });
+let update = null; // the newer release, once found
+let updating = false;
+
+async function checkForUpdate() {
+  if (updating) return;
+  try {
+    const found = await checkLatest(currentVersion());
+    if (!found) return;
+    update = found;
+    win?.webContents.send('update-available', {
+      version: found.version,
+      current: currentVersion(),
+      auto: updateKind() !== 'page',
+    });
+  } catch {} // offline or rate-limited: try again later
+}
+ipcMain.handle('update-check', () => checkForUpdate());
+ipcMain.handle('update-install', async () => {
+  if (!update || updating) return { ok: false };
+  const kind = updateKind();
+  if (kind === 'page') {
+    shell.openExternal(update.url || RELEASES_PAGE);
+    return { ok: true, page: true };
+  }
+  updating = true;
+  try {
+    const next = await installUpdate(update, {
+      kind,
+      appImage: process.env.APPIMAGE,
+      execPath: process.execPath,
+      onProgress: (p) => win?.webContents.send('update-progress', p),
+    });
+    if (next.relaunch) app.relaunch(next.relaunch);
+    // Closing the window runs the usual cleanup (terminals, tunnel, room) and then quits.
+    setTimeout(() => (win && !win.isDestroyed() ? win.close() : app.quit()), 300);
+    return { ok: true };
+  } catch (err) {
+    updating = false;
+    return { ok: false, error: err.message, page: update.url || RELEASES_PAGE };
+  }
+});
+ipcMain.handle('open-releases', () => shell.openExternal(update?.url || RELEASES_PAGE));
+
 // One window per profile: a codev:// link opened while CoDev runs goes to the open window.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -938,6 +987,8 @@ if (!app.requestSingleInstanceLock()) {
     registerProtocol();
     createWindow();
     lanDiscovery(); // start listening early: rooms on the network are heard every few seconds
+    win.webContents.once('did-finish-load', () => setTimeout(checkForUpdate, 3000));
+    setInterval(checkForUpdate, 4 * 60 * 60 * 1000);
   });
 }
 app.on('window-all-closed', () => {

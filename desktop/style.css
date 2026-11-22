@@ -449,3 +449,13 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 .xterm .xterm-viewport { background: var(--term) !important; }
 .xterm-viewport::-webkit-scrollbar { width: 8px; }
 .xterm-viewport::-webkit-scrollbar-thumb { background: #333; }
+
+/* Update notice: bottom right, above everything, on the start screen and in the room. */
+.update { position: fixed; right: 20px; bottom: 20px; z-index: 50; width: min(380px, calc(100vw - 40px)); padding: 16px 18px; background: var(--black); color: var(--white); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35); }
+.update p { margin: 0 0 12px; font: 400 16px/1.4 var(--text); }
+.update p strong { font-weight: 600; }
+.update .err { display: block; margin-top: 6px; color: #ff9b9b; font-size: 14px; }
+.update-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.update .bar-btn { background: var(--white); color: var(--black); }
+.update .bar-btn.quiet { background: var(--black-2); color: var(--white); }
+.update .bar-btn:disabled { opacity: 0.6; cursor: default; }

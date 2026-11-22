@@ -103,6 +103,66 @@ if (!WEB) {
   $('#request-deny').addEventListener('click', () => answerRequest(false));
 }
 
+/* ---------- Updates: a newer CoDev on GitHub ---------- */
+if (!WEB && api.onUpdate) {
+  const box = $('#update');
+  const go = $('#update-go');
+  const later = $('#update-later');
+  let info = null;
+  let busy = false;
+  let failed = false; // after a failed install the button opens the download page
+  const show = (...text) => {
+    $('#update-text').replaceChildren(...text);
+    box.hidden = false;
+  };
+  api.onUpdate((u) => {
+    if (busy || (info && info.version === u.version && box.dataset.dismissed === u.version)) return;
+    info = u;
+    failed = false;
+    go.disabled = later.disabled = false;
+    go.textContent = u.auto ? 'Update and restart' : 'Download';
+    show(
+      'CoDev ', h('strong', {}, u.version), ' is available (you have ', u.current, '). ',
+      u.auto ? 'It installs on its own and CoDev opens again; open terminals will close.' : 'Download it from GitHub.'
+    );
+  });
+  api.onUpdateProgress((p) => {
+    if (busy) go.textContent = p >= 1 ? 'Installing…' : `Downloading… ${Math.round(p * 100)}%`;
+  });
+  later.addEventListener('click', () => {
+    box.hidden = true;
+    if (info) box.dataset.dismissed = info.version; // ask again only for a newer version, or next launch
+  });
+  go.addEventListener('click', async () => {
+    if (busy || !info) return;
+    if (failed) {
+      api.openReleases();
+      box.hidden = true;
+      return;
+    }
+    busy = true;
+    go.disabled = later.disabled = true;
+    go.textContent = info.auto ? 'Downloading…' : 'Opening…';
+    const res = await api.updateInstall();
+    if (res?.ok) {
+      if (res.page) {
+        busy = false;
+        box.hidden = true;
+      } else go.textContent = 'Restarting…';
+      return;
+    }
+    busy = false;
+    later.disabled = false;
+    go.disabled = false;
+    failed = true;
+    go.textContent = 'Open the download page';
+    show(
+      'CoDev ', h('strong', {}, info.version), ' could not be installed automatically.',
+      h('span', { class: 'err' }, res?.error || 'Unknown error')
+    );
+  });
+}
+
 /** Guest-terminal messages from the room server (browser only). */
 function onGuestMessage(m) {
   const pending = guestPending.get(m.id);

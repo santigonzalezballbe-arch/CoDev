@@ -33,5 +33,9 @@ contextBridge.exposeInMainWorld('codev', {
   ptyResize: (id, cols, rows) => ipcRenderer.send('pty-resize', id, cols, rows),
   ptyKill: (id) => ipcRenderer.send('pty-kill', id),
   onPtyData: (cb) => ipcRenderer.on('pty-data', (_e, id, data) => cb(id, data)),
+  onUpdate: (cb) => ipcRenderer.on('update-available', (_e, u) => cb(u)),
+  onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (_e, p) => cb(p)),
+  updateInstall: () => ipcRenderer.invoke('update-install'),
+  openReleases: () => ipcRenderer.invoke('open-releases'),
   onPtyExit: (cb) => ipcRenderer.on('pty-exit', (_e, id, code) => cb(id, code)),
 });
