@@ -20,3 +20,9 @@ Pendent: el mateix que a l'entrada anterior (release nova i proves a Windows/mac
 Petició: fer commit i release.
 Canvis: `package.json` i `package-lock.json` a 0.4.3; commit de l'actualitzador automàtic i etiqueta `v0.4.3` pujada perquè GitHub Actions compili i publiqui els instal·ladors.
 Pendent: comprovar que la release té els quatre instal·ladors. Qui tingui 0.4.2 o anterior ha d'instal·lar la 0.4.3 a mà un cop; a partir d'aquí, les actualitzacions arriben soles.
+
+## 2026-11-22 19:20
+
+Petició: instal·lar la 0.4.3 en aquest ordinador.
+Canvi (fora del repo): `~/Applications/CoDev.AppImage` substituït per la 0.4.3 de la release, amb l'actualitzador mateix (SHA-256 verificat). L'app oberta segueix sent la 0.4.2 fins que es tanqui i es torni a obrir.
+Pendent: reiniciar CoDev; els companys han d'instal·lar la 0.4.3 a mà un cop.
