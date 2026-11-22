@@ -77,6 +77,13 @@ button { cursor: pointer; }
 .half button:focus-visible, .half a:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 .pick { display: flex; gap: 12px; align-items: end; }
 
+/* Teammates found on the same project: knock on their room. */
+.found { display: flex; flex-direction: column; gap: 10px; border-left: 3px solid var(--ink); padding: 4px 0 4px 14px; }
+.found p { margin: 0; font: 400 17px/1.45 var(--text); }
+.found p strong { font-weight: 600; }
+.found .row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.found .via { font: italic 400 15px/1.4 var(--text); opacity: 0.7; }
+
 .hint { margin: 2px 0 0; font-size: 16px; line-height: 1.45; min-height: 1.45em; }
 .hint a { color: inherit; text-underline-offset: 3px; }
 .note { margin: 0; max-width: 52ch; font: italic 400 15px/1.5 var(--text); opacity: 0.84; }

@@ -93,6 +93,16 @@ Choose **Anyone with the invite** when you create the room (or press **Share onl
 
 The tunnel runs on [`cloudflared`](https://github.com/cloudflare/cloudflared) (Apache 2.0). If you already have it installed, CoDev uses yours. Otherwise, the first time you share online the app downloads it from Cloudflare's GitHub releases into its own data folder (about 40 MB, a few seconds). The version and the SHA-256 of each file are pinned in `desktop/cloudflared.js`, and a download that does not match is thrown away.
 
+### Teammates on the same project
+
+You don't always need an invite. When you choose a repository or a folder on the start screen, CoDev looks for rooms that teammates already have open **on the same project** and shows them: *"Maya is working on this project in room todo-app — Ask to join"*.
+
+- **Same project** means the same first commit (identical in every clone) or the same GitHub repository. Only hashes of these are sent, never the repository's name.
+- **On your network**, an app that hosts a room announces it every few seconds (UDP multicast on `239.255.43.219:43219`). Networks that isolate devices from each other, such as some public Wi-Fi, block this.
+- **On another network**, while a room is shared online, the host's app writes a hidden ref in the GitHub repository, `refs/codev/rooms/<name>`, whose commit message holds the room's public link. It is not a branch, plain clones do not fetch it, and only people who can read the repository see it. It needs [`gh`](https://cli.github.com) signed in with write access to the repository. The app refreshes it every 10 minutes, removes it when you stop sharing or close CoDev, and listings older than 30 minutes are ignored.
+
+**Finding a room gives no access.** *Ask to join* knocks on the room: the host sees *"Maya wants to join this room"* with **Allow** and **Deny**, and only if they allow it does Maya's app receive the room key and go in. Requests expire after 90 seconds, and a room keeps at most 5 waiting at once.
+
 **Every room the app creates is locked with a random key.** Without it, the server answers nothing: no state, no activity, no terminals. The key travels inside the invite, so send the invite only to your teammates. The terminals can show private code or secrets, and anyone with the invite can watch them.
 
 Room events and terminals travel over a single WebSocket, which passes through the tunnel as it is.
@@ -233,6 +243,7 @@ npm test
 - **ChatGPT is experimental.** Codex must trust the folder before it runs CoDev's hooks; until then its edits are not locked. Testing it with a real OpenAI account is still pending.
 - Access control is one key per room, shared through the invite: there are no user accounts, and anyone holding the invite can watch. Rooms started with `codev server` without `--key` are open to anyone who can reach them.
 - Locks are per file, not per function or line.
+- Finding rooms on the same project needs multicast on the local network, or `gh` with write access to the GitHub repository and the room shared online. Rooms in a public repository are listed for anyone who can read it, but nobody gets in without the host's **Allow**.
 - `Bash` commands that change files (`sed`, `mv`...) are not blocked, only shown.
 
 ## Ideas for next versions

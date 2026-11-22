@@ -34,3 +34,15 @@ Petició: donar a conèixer CoDev (demo en vídeo, Reddit, TikTok, GitHub).
 Canvis: `docs/codev-demo.gif` (gravació real de Claude Code + DeepSeek al mateix repo: DeepSeek reclama els fitxers, Claude li escriu i espera, després continua) i el GIF a dalt de `README.md`. Fora del repo: descripció i topics del repo a GitHub i GIF a les notes de la release v0.4.2. Vídeos i textos per a xarxes a `~/Videos/codev-demo/`.
 Pendent: enviar CoDev a awesome-claude-code a partir del 28/11 (demanen repo d'una setmana); el post de r/vibecoding espera revisió dels moderadors.
 Commit: `221991b` (README + GIF), pujat a `main`.
+
+## 2026-11-22 18:30
+
+Petició: si dues persones del mateix projecte fan servir CoDev, que s'assabentin i es puguin unir a la mateixa sala.
+Canvis:
+- `desktop/discovery.js` (nou): identitat del projecte (hash del primer commit i del repo de GitHub; mai el nom), anunci per multicast UDP a la LAN (`239.255.43.219:43219`) i llistat a GitHub amb una ref amagada `refs/codev/rooms/<nom>` (via `gh api`), que només s'escriu mentre la sala està compartida online.
+- `server/server.js`: `POST /api/knock` sense clau; espera la decisió de l'amfitrió (`knocks.ask`) i només llavors torna la clau. Màxim 5 peticions alhora. `/api/info` diu `knock: true`.
+- `desktop/main.js`: anuncia la sala en ser amfitrió, la publica a GitHub quan s'obre el túnel (refresc cada 10 min) i l'esborra en aturar-lo o tancar l'app; IPC `discover`; `knockHooks` reutilitza `askHost` (90 s).
+- `desktop/renderer.js`, `index.html`, `style.css`, `preload.cjs`: a la pantalla d'inici, avís "X is working on this project in room Y — Ask to join" (cada 8 s); l'amfitrió veu la petició a la barra d'avisos amb Allow/Deny; en acceptar, s'entra a la sala automàticament.
+- `test/discovery.test.js` (nou, 8 tests), `README.md` (secció "Teammates on the same project" i limitació).
+Proves: `npm test` 45/45 (inclou multicast real). GitHub real: ref creada, llegida, actualitzada i esborrada al repo CoDev. Prova completa amb dues finestres a la LAN: Maya troba la sala d'Alex des d'una altra còpia, truca, Alex accepta i Maya entra.
+Pendent: provar el camí per GitHub amb dues xarxes diferents de veritat (túnel de Cloudflare). Sense commit.

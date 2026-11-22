@@ -212,15 +212,44 @@ export function keyCheck(key) {
   };
 }
 
-export function startServer({ port = 4321, host = '0.0.0.0', key = null, guests = null } = {}) {
+/**
+ * A request to join a locked room from someone who has no invite (they found the room because they
+ * work on the same repository). It needs no key: the host's app asks the host, and only if they
+ * allow it does the answer carry the key. The request stays open until the host answers.
+ *   knocks.ask({ room, member, project }) -> Promise<boolean>
+ */
+const MAX_KNOCKS = 5;
+async function handleKnock(req, res, { knocks, key, pending }) {
+  if (!knocks) return sendJson(res, 404, { error: 'This CoDev room does not take join requests.' });
+  if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+  const body = await readBody(req);
+  const member = typeof body.member === 'string' ? body.member.trim().slice(0, 40) : '';
+  const room = typeof body.room === 'string' ? body.room.trim().slice(0, 60) : '';
+  if (!member || !room) return sendJson(res, 400, { error: 'missing "member" or "room"' });
+  if (pending.size >= MAX_KNOCKS) return sendJson(res, 429, { error: 'Too many people are asking to join right now. Try again in a minute.' });
+  const id = Symbol(member);
+  pending.add(id);
+  try {
+    const project = typeof body.project === 'object' && body.project ? body.project : {};
+    const allowed = await knocks.ask({ room, member, project });
+    if (!allowed) return sendJson(res, 403, { error: 'The host did not let you in this time.' });
+    return sendJson(res, 200, { ok: true, room, key });
+  } finally {
+    pending.delete(id);
+  }
+}
+
+export function startServer({ port = 4321, host = '0.0.0.0', key = null, guests = null, knocks = null } = {}) {
   const authorized = keyCheck(key);
+  const knocking = new Set();
   const server = http.createServer(async (req, res) => {
     try {
       if (req.method === 'OPTIONS') {
         res.writeHead(204, CORS);
         return res.end();
       }
-      if (req.url === '/api/info') return sendJson(res, 200, { app: 'codev', version: 3, terminals: true, locked: !!key });
+      if (req.url === '/api/info') return sendJson(res, 200, { app: 'codev', version: 3, terminals: true, locked: !!key, knock: !!knocks });
+      if (req.url === '/api/knock') return await handleKnock(req, res, { knocks, key, pending: knocking });
       const m = req.url.match(/^\/api\/rooms\/([^/?]+)\/(\w+)/);
       if (m && !authorized(req)) return sendJson(res, 401, { error: 'This room needs a key. Ask your teammate for a new invite.' });
       if (m) return await handleApi(req, res, decodeURIComponent(m[1]).slice(0, 60), m[2]);

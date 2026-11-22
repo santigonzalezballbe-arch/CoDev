@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('codev', {
   guestStop: (id) => ipcRenderer.invoke('guest-stop', id),
   onShareProgress: (cb) => ipcRenderer.on('share-progress', (_e, p) => cb(p)),
   ghRepos: () => ipcRenderer.invoke('gh-repos'),
+  discover: (where) => ipcRenderer.invoke('discover', where),
   repoStatus: (input) => ipcRenderer.invoke('repo-status', input),
   prepareRepo: (input) => ipcRenderer.invoke('prepare-repo', input),
   setupProject: (opts) => ipcRenderer.invoke('setup-project', opts),

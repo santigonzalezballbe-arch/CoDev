@@ -13,6 +13,15 @@ import { projectRules } from '../cli/config.js';
 import { AGENTS, spawnSpec, harnessPatch, ollamaModels } from './agents.js';
 import { ensureCloudflared } from './cloudflared.js';
 import { History } from './history.js';
+import {
+  fingerprint,
+  sameProject,
+  projectIdentity,
+  startLan,
+  publishGithubRoom,
+  unpublishGithubRoom,
+  listGithubRooms,
+} from './discovery.js';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ptys = new Map(); // id -> process
@@ -76,7 +85,7 @@ ipcMain.handle('host-server', async (_e, requested = 4321) => {
     // Use the first free port from the requested one (an old `codev server` may be holding 4321).
     for (let port = first; port < first + 10 && !hostedServer; port++) {
       try {
-        hostedServer = await startServer({ port, host: '0.0.0.0', key: roomKey, guests: guestHooks });
+        hostedServer = await startServer({ port, host: '0.0.0.0', key: roomKey, guests: guestHooks, knocks: knockHooks });
       } catch (err) {
         if (err.code !== 'EADDRINUSE') throw err;
       }
@@ -119,7 +128,10 @@ ipcMain.handle('share-start', async (e) => {
         // Cloudflare prints the address a few seconds before it resolves in DNS:
         // only report the room as online once the public address really answers.
         waitUntilReachable(m[0]).then(
-          () => resolve({ url: m[0] }),
+          () => {
+            resolve({ url: m[0] });
+            announceRoom(); // teammates on the same GitHub repository can find it now
+          },
           (err) => {
             proc.kill();
             reject(err);
@@ -158,9 +170,10 @@ async function waitUntilReachable(url, timeoutMs = 90_000) {
   throw new Error('The online link did not come up in time. Try again in a moment.');
 }
 
-ipcMain.handle('share-stop', () => {
+ipcMain.handle('share-stop', async () => {
   tunnel?.proc.kill();
   tunnel = null;
+  await unannounceGithub();
   return true;
 });
 
@@ -586,6 +599,8 @@ let askSeq = 0;
 
 ipcMain.handle('host-context', (_e, ctx) => {
   hostCtx = ctx;
+  hostIdentity = null;
+  announceRoom();
   return true;
 });
 ipcMain.handle('guest-decision', (_e, reqId, allow) => {
@@ -627,7 +642,7 @@ async function guestWorkspace(member) {
   return { dir, branch };
 }
 
-function askHost(req, plan) {
+function askHost(req, plan, timeoutMs = 120_000) {
   if (!win || win.isDestroyed()) return Promise.resolve(false);
   const reqId = ++askSeq;
   win.webContents.send('guest-request', { reqId, member: req.member, ...plan });
@@ -641,7 +656,7 @@ function askHost(req, plan) {
         win?.webContents.send('guest-request-expired', reqId);
         resolve(false);
       }
-    }, 120_000);
+    }, timeoutMs);
   });
 }
 
@@ -706,6 +721,96 @@ const guestHooks = {
     notifyGuests();
   },
 };
+
+/* ---------- Teammates on the same project: find their rooms, knock, let them in ---------- */
+// See discovery.js. Rooms are announced on the local network while hosted, and in the GitHub
+// repository while shared online. Finding a room gives no access: the visitor knocks, the host decides.
+const INSTANCE = crypto.randomUUID();
+let lan = null;
+const lanDiscovery = () =>
+  (lan ||= startLan({ inst: INSTANCE, onError: (err) => console.warn('CoDev: local network discovery:', err.message) }));
+let hostIdentity = null; // { rootCommit, repo, fp } of the project this app hosts
+let ghPublished = null; // { repo, name } while our room is written in the repository
+let ghTimer = null;
+
+async function identityOf(root) {
+  const id = await projectIdentity(root, run);
+  return { ...id, fp: fingerprint(id) };
+}
+const ghEnv = async () => ({ ...process.env, PATH: await getUserPath(), GH_PROMPT_DISABLED: '1' });
+
+async function announceRoom() {
+  if (!hostCtx || !hostedServer) return;
+  try {
+    hostIdentity ||= await identityOf(hostCtx.root);
+  } catch {
+    return;
+  }
+  const { fp, repo } = hostIdentity;
+  if (fp.r || fp.g) {
+    lanDiscovery().announce({ name: hostCtx.name, room: hostCtx.room, port: hostedServer.address().port, r: fp.r, g: fp.g });
+  }
+  if (!repo || !tunnel?.url) return;
+  const publish = async () => {
+    if (!hostCtx || !tunnel?.url) return;
+    try {
+      await publishGithubRoom({ repo, name: hostCtx.name, room: hostCtx.room, url: tunnel.url, env: await ghEnv() });
+      ghPublished = { repo, name: hostCtx.name };
+    } catch (err) {
+      console.warn(`CoDev: could not list the room in ${repo} on GitHub:`, err.message);
+    }
+  };
+  await publish();
+  clearInterval(ghTimer);
+  ghTimer = setInterval(publish, 10 * 60 * 1000); // listings older than 30 minutes are ignored
+}
+
+async function unannounceGithub() {
+  clearInterval(ghTimer);
+  ghTimer = null;
+  const p = ghPublished;
+  ghPublished = null;
+  if (p) await unpublishGithubRoom({ ...p, env: await ghEnv() });
+}
+
+const knockHooks = {
+  async ask({ room, member, project }) {
+    if (!hostCtx || room !== hostCtx.room) return false;
+    hostIdentity ||= await identityOf(hostCtx.root).catch(() => null);
+    const theirs = { r: typeof project?.r === 'string' ? project.r : null, g: typeof project?.g === 'string' ? project.g : null };
+    const same = !!hostIdentity && sameProject(hostIdentity.fp, theirs);
+    return askHost(
+      { member },
+      { kind: 'knock', sameProject: same, project: hostIdentity?.repo || path.basename(hostCtx.root) },
+      90_000 // under Cloudflare's 100-second limit for an open request
+    );
+  },
+};
+
+/** Rooms of teammates on the same project as `root` (a folder) or `repo` (owner/name). */
+ipcMain.handle('discover', async (_e, { root, repo } = {}) => {
+  let id = { rootCommit: null, repo: null };
+  if (root && fs.existsSync(root)) id = await projectIdentity(root, run);
+  if (!id.repo && repo) id.repo = parseRepo(repo);
+  const fp = fingerprint(id);
+  if (!fp.r && !fp.g) return { fp, rooms: [] };
+  const found = lanDiscovery().peers().filter((p) => sameProject(fp, p));
+  if (id.repo) found.push(...(await listGithubRooms({ repo: id.repo, env: await ghEnv() }).catch(() => [])));
+  const seen = new Set();
+  const rooms = [];
+  await Promise.all(
+    found.map(async (r) => {
+      const k = `${r.name}\n${r.room}`;
+      if (seen.has(k) || (hostCtx && r.name === hostCtx.name && r.room === hostCtx.room)) return;
+      seen.add(k); // the local network comes first, so it wins over the same room on GitHub
+      try {
+        const res = await fetch(`${r.url}/api/info`, { signal: AbortSignal.timeout(3000) });
+        if ((await res.json()).knock) rooms.push({ name: r.name, room: r.room, url: r.url, via: r.via });
+      } catch {} // a room that does not answer is closed
+    })
+  );
+  return { fp, rooms };
+});
 
 /* ---------- Packaged app: a stable copy of the CLI for the hooks and the MCP server ---------- */
 // Inside a package the CLI lives in app.asar (and in an AppImage, under a mount path that changes on
@@ -832,6 +937,7 @@ if (!app.requestSingleInstanceLock()) {
     prepareRuntime();
     registerProtocol();
     createWindow();
+    lanDiscovery(); // start listening early: rooms on the network are heard every few seconds
   });
 }
 app.on('window-all-closed', () => {
@@ -839,5 +945,7 @@ app.on('window-all-closed', () => {
   tunnel?.proc.kill();
   for (const id of [...guests.keys()]) guestHooks.close(id);
   hostedServer?.close();
-  app.quit();
+  lan?.close();
+  // Take the room off the GitHub repository, but never hold the quit for long.
+  Promise.race([unannounceGithub(), new Promise((r) => setTimeout(r, 4000))]).finally(() => app.quit());
 });

@@ -21,6 +21,7 @@ const ptyExitCbs = [];
 const api = window.codev || {
   copy: (text) => navigator.clipboard?.writeText(text).catch(noop),
   ghRepos: async () => ({ ok: false, repos: [] }),
+  discover: async () => ({ fp: null, rooms: [] }),
   repoStatus: async () => ({ valid: false }),
   ptyCreate: ({ id, cols, rows, env }) =>
     new Promise((resolve, reject) => {
@@ -55,6 +56,17 @@ function showNextRequest() {
   const req = guestQueue[0];
   bar.hidden = !req;
   if (!req) return;
+  if (req.kind === 'knock') {
+    $('#request-text').replaceChildren(
+      h('strong', {}, req.member),
+      ' wants to join this room. ',
+      req.sameProject
+        ? h('span', {}, 'They are working on the same project, ', h('strong', {}, req.project), '. ')
+        : h('span', {}, 'CoDev could not confirm they work on ', h('strong', {}, req.project), '. '),
+      'If you let them in, they will see every terminal in the room live. Allow it only for people you trust.'
+    );
+    return;
+  }
   const where = req.sameFolder
     ? h('span', {}, 'This project is not a git repository, so they will work ', h('strong', {}, 'in the same folder as you'), '.')
     : h('span', {}, 'It runs in a separate copy of ', h('strong', {}, req.project), ' on branch ', h('strong', {}, req.branch), '.');
@@ -383,6 +395,7 @@ form.addEventListener('click', (e) => {
   if (opt || mode || reach) {
     renderStart();
     if (mode) checkRoom();
+    if (opt) checkFound();
   }
 });
 form.addEventListener('input', (e) => {
@@ -396,7 +409,10 @@ form.addEventListener('input', (e) => {
     }
   }
   renderStart();
-  if (e.target.name === 'repo') checkRepo();
+  if (e.target.name === 'repo') {
+    checkRepo();
+    checkFound();
+  }
   if (['room', 'server', 'key'].includes(e.target.name)) checkRoom();
 });
 window.addEventListener('resize', debounce(renderStart, 100));
@@ -404,7 +420,87 @@ window.addEventListener('resize', debounce(renderStart, 100));
 $('#pick').addEventListener('click', async () => {
   const dir = await api.pickFolder();
   if (dir) form.project.value = dir;
+  checkFound();
 });
+
+/* ---------- Teammates already in a room on the same project ---------- */
+// The main process listens on the local network and reads the GitHub repository (discovery.js).
+// Finding a room gives no access: "Ask to join" knocks, and the host lets you in or not.
+const found = { rooms: [], fp: null, knocking: null };
+
+function foundWhere() {
+  if (ui.source === 'folder') return form.project.value ? { root: form.project.value } : null;
+  const repo = form.repo.value.trim();
+  return repo ? { repo } : null;
+}
+
+const checkFound = debounce(async () => {
+  if (WEB || !$('#app').hidden || found.knocking) return;
+  const where = foundWhere();
+  let rooms = [];
+  if (where) {
+    try {
+      const r = await api.discover(where);
+      found.fp = r.fp;
+      rooms = r.rooms;
+    } catch {}
+  }
+  found.rooms = rooms;
+  renderFound();
+}, 300);
+
+function renderFound() {
+  const box = $('#found');
+  box.hidden = !found.rooms.length;
+  box.replaceChildren(
+    ...found.rooms.map((r) => {
+      const btn = h('button', { type: 'button', class: 'small' }, found.knocking === r ? `Waiting for ${r.name}…` : 'Ask to join');
+      btn.disabled = !!found.knocking;
+      btn.addEventListener('click', () => knock(r));
+      return h(
+        'div',
+        {},
+        h('p', {}, h('strong', {}, r.name), ' is working on this project in room ', h('strong', {}, r.room), '.'),
+        h('div', { class: 'row' }, btn, h('span', { class: 'via' }, r.via === 'lan' ? 'On your network' : 'Found through the GitHub repository'))
+      );
+    })
+  );
+}
+
+async function knock(r) {
+  const err = $('#start-error');
+  const name = form.name.value.trim();
+  if (!name) {
+    err.textContent = 'Write your name first, so they know who is asking.';
+    err.hidden = false;
+    form.name.focus();
+    return;
+  }
+  err.hidden = true;
+  found.knocking = r;
+  renderFound();
+  try {
+    const res = await fetch(`${r.url}/api/knock`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ member: name, room: r.room, project: found.fp || {} }),
+      signal: AbortSignal.timeout(100_000),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `${r.name} did not answer.`);
+    found.knocking = null;
+    applyInvite({ server: r.url, room: body.room || r.room, key: body.key });
+    form.requestSubmit();
+  } catch (ex) {
+    err.textContent = ex.name === 'TimeoutError' ? `${r.name} did not answer in time. Try again.` : String(ex.message || ex);
+    err.hidden = false;
+  } finally {
+    found.knocking = null;
+    renderFound();
+  }
+}
+
+if (!WEB) setInterval(checkFound, 8000); // rooms on the network show up within a few seconds
 
 // The user's repositories (via gh), suggested while typing.
 api.ghRepos().then((r) => {
@@ -456,6 +552,7 @@ if (!WEB) {
 document.fonts.ready.then(renderStart);
 renderStart();
 checkRoom();
+checkFound();
 
 /** Fills the join screen from an invite (a codev:// link opened by the system, or a web invite). */
 function applyInvite({ server, room, key }) {
