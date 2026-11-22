@@ -33,3 +33,4 @@ Pendent: provar-ho en viu entre dues màquines (cal que l'altra persona actualit
 Petició: donar a conèixer CoDev (demo en vídeo, Reddit, TikTok, GitHub).
 Canvis: `docs/codev-demo.gif` (gravació real de Claude Code + DeepSeek al mateix repo: DeepSeek reclama els fitxers, Claude li escriu i espera, després continua) i el GIF a dalt de `README.md`. Fora del repo: descripció i topics del repo a GitHub i GIF a les notes de la release v0.4.2. Vídeos i textos per a xarxes a `~/Videos/codev-demo/`.
 Pendent: enviar CoDev a awesome-claude-code a partir del 28/11 (demanen repo d'una setmana); el post de r/vibecoding espera revisió dels moderadors.
+Commit: `221991b` (README + GIF), pujat a `main`.
