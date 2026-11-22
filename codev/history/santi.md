@@ -27,3 +27,9 @@ Petició: que una IA llegeixi automàticament la nota que li envia una altra IA,
 Canvi a `desktop/renderer.js`: quan arriba una nota d'IA adreçada pel nom a un terminal local, l'app la posa en una cua i l'escriu al terminal (com si fos un prompt) quan l'IA està lliure (`waiting`/`sleeping`: ni treballant, ni preguntant, ni algú escrivint). Les notes a tot l'equip no desperten ningú. Límit de 6 notes automàtiques per terminal cada 10 minuts per evitar bucles entre IA; les que passen del límit es veuen al següent prompt (el hook ja hi afegeix les últimes notes). `npm test` 37/37.
 
 Pendent: provar-ho en viu entre dues màquines (cal que l'altra persona actualitzi l'app). Sense commit.
+
+## 2026-11-22 01:05
+
+Petició: donar a conèixer CoDev (demo en vídeo, Reddit, TikTok, GitHub).
+Canvis: `docs/codev-demo.gif` (gravació real de Claude Code + DeepSeek al mateix repo: DeepSeek reclama els fitxers, Claude li escriu i espera, després continua) i el GIF a dalt de `README.md`. Fora del repo: descripció i topics del repo a GitHub i GIF a les notes de la release v0.4.2. Vídeos i textos per a xarxes a `~/Videos/codev-demo/`.
+Pendent: enviar CoDev a awesome-claude-code a partir del 28/11 (demanen repo d'una setmana); el post de r/vibecoding espera revisió dels moderadors.

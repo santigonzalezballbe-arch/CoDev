@@ -2,6 +2,10 @@
 
 **Code as a team with AI without stepping on each other.**
 
+![Claude Code and DeepSeek working on the same repo: DeepSeek holds the files, Claude waits, then builds on top of its changes](docs/codev-demo.gif)
+
+*Claude Code and DeepSeek get tasks that touch the same files. DeepSeek claims them first; Claude messages it and waits, then builds on top of its changes. Real run, sped up 3×.*
+
 Hardly anyone writes code by hand anymore: everyone gives instructions to their own AI. The trouble starts when two people (and two AIs) work on the same project at once. They change the same files, one AI undoes what the other just did, and you end up with conflicts.
 
 CoDev fixes this with three pieces:
