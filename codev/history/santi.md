@@ -63,3 +63,14 @@ Pendent: provar-ho a l'app real i ajustar els temps (8 s / 3 s) si cal.
 Petició: treure versió nova per provar l'actualitzador amb l'avís de "Done".
 Canvis: `package.json` i `package-lock.json` a 0.4.4; etiqueta `v0.4.4` pujada perquè GitHub Actions compili i publiqui els instal·ladors.
 Pendent: comprovar que la release té els quatre instal·ladors i que la 0.4.3 instal·lada mostra l'avís d'actualització i s'actualitza.
+
+## 2026-11-22 19:45
+Request: after an in-app update the AppImage did not reopen ("Cannot mount AppImage, please check your FUSE setup").
+Cause: KDE starts CoDev as a systemd service (KillMode=control-group); when CoDev quits, systemd kills everything left in the service, including the new copy that app.relaunch() was mounting.
+Changed: desktop/main.js — new relaunch(): on Linux inside a systemd service (INVOCATION_ID set) it starts the new copy with `systemd-run --user --scope` once the old process has exited; otherwise app.relaunch(). The pause before closing went from 300 ms to 1 s so the scope is created first.
+Left to do: try it with a real release (0.4.5); the fix only applies from the version that includes it.
+
+## 2026-11-22 19:55
+Request: commit the relaunch fix and publish 0.4.5.
+Changed: package.json, package-lock.json (version 0.4.5); tag v0.4.5 pushed, the Release workflow builds the installers.
+Left to do: update from 0.4.4 to 0.4.5 (0.4.4 may still fail to reopen; open it by hand), then check that 0.4.5 → next reopens by itself.

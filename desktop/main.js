@@ -950,6 +950,23 @@ async function checkForUpdate() {
   } catch {} // offline or rate-limited: try again later
 }
 ipcMain.handle('update-check', () => checkForUpdate());
+// Desktops like KDE start CoDev as a systemd service: when it quits, systemd kills everything
+// left in that service, including the copy app.relaunch() just started (the AppImage then fails
+// with "Cannot mount AppImage"). So there we start the new copy in its own scope, once we have exited.
+function relaunch({ execPath = process.execPath, args = process.argv.slice(1) } = {}) {
+  if (process.platform === 'linux' && process.env.INVOCATION_ID) {
+    const wait = `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.2; done; exec "$@"`;
+    const child = spawn('systemd-run', ['--user', '--scope', '--quiet', '--collect', 'sh', '-c', wait, 'codev', execPath, ...args], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.on('error', () => app.relaunch({ execPath, args })); // no systemd-run: Electron's own relaunch
+    child.unref();
+    return;
+  }
+  app.relaunch({ execPath, args });
+}
+
 ipcMain.handle('update-install', async () => {
   if (!update || updating) return { ok: false };
   const kind = updateKind();
@@ -965,9 +982,10 @@ ipcMain.handle('update-install', async () => {
       execPath: process.execPath,
       onProgress: (p) => win?.webContents.send('update-progress', p),
     });
-    if (next.relaunch) app.relaunch(next.relaunch);
+    if (next.relaunch) relaunch(next.relaunch);
     // Closing the window runs the usual cleanup (terminals, tunnel, room) and then quits.
-    setTimeout(() => (win && !win.isDestroyed() ? win.close() : app.quit()), 300);
+    // (The pause also lets systemd-run move the new copy into its own scope before we exit.)
+    setTimeout(() => (win && !win.isDestroyed() ? win.close() : app.quit()), 1000);
     return { ok: true };
   } catch (err) {
     updating = false;
