@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('codev', {
   prepareRepo: (input) => ipcRenderer.invoke('prepare-repo', input),
   setupProject: (opts) => ipcRenderer.invoke('setup-project', opts),
   focusWindow: () => ipcRenderer.invoke('focus-window'),
+  keepAwake: (on) => ipcRenderer.invoke('keep-awake', on),
   copy: (text) => ipcRenderer.invoke('copy', text),
   ptyCreate: (opts) => ipcRenderer.invoke('pty-create', opts),
   agentsInfo: () => ipcRenderer.invoke('agents-info'),

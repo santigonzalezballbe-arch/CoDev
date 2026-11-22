@@ -1,5 +1,5 @@
 // Desktop app main process: window, real terminals (PTY) and an optional embedded server.
-import { app, BrowserWindow, Menu, ipcMain, dialog, clipboard, shell, safeStorage } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, dialog, clipboard, shell, safeStorage, powerSaveBlocker } from 'electron';
 import pty from '@lydell/node-pty';
 import os from 'node:os';
 import fs from 'node:fs';
@@ -252,6 +252,16 @@ ipcMain.handle('focus-window', () => {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+});
+
+// While an AI is working the screen stays on and does not lock, as when a video is playing.
+let awakeId = null;
+ipcMain.handle('keep-awake', (_e, on) => {
+  if (on && awakeId === null) awakeId = powerSaveBlocker.start('prevent-display-sleep');
+  else if (!on && awakeId !== null) {
+    powerSaveBlocker.stop(awakeId);
+    awakeId = null;
+  }
 });
 
 // The user's shell PATH (nvm, ~/.local/bin...). When the app is opened from a menu, the inherited PATH is minimal.

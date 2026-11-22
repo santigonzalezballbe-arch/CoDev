@@ -2294,8 +2294,18 @@ function renderHeads() {
     renderConvo(p);
   }
   if (S.cfg) updateNoteTargets();
+  keepAwake();
 }
 setInterval(renderHeads, 400);
+
+/* While any AI is working, keep the screen on and unlocked, like a video playing. */
+let awake = false;
+function keepAwake() {
+  const on = [...S.panes.values()].some((p) => p.state === 'working');
+  if (WEB || on === awake) return;
+  awake = on;
+  window.codev.keepAwake?.(on);
+}
 
 /** Everyone in the room can get a message: people with a terminal and people watching from a browser. */
 function updateNoteTargets() {
