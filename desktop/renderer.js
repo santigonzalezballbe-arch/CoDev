@@ -974,11 +974,90 @@ const personChip = (name, label = name) => {
 };
 
 /** Desktop notification, only when CoDev is in the background. */
-function notify(title, body) {
+function notify(title, body, onClick) {
   if (WEB || document.hasFocus()) return;
   try {
-    new Notification(title, { body, silent: false });
+    const n = new Notification(title, { body, silent: false });
+    if (onClick) n.onclick = () => { api.focusWindow?.(); onClick(); };
   } catch {}
+}
+
+/* ---------- "Done" notice: one of your AIs finished working ---------- */
+// Only your own windows (yours and guests running here). A turn counts when it worked for a while
+// and stays quiet for a few seconds, so output bursts (a resize, a redraw) do not ring.
+const DONE_MIN_WORK = 8000;
+const DONE_SETTLE = 3000;
+let doneSound = store.get('codev.doneSound') !== false;
+let audioCtx;
+
+function playDing() {
+  if (!doneSound) return;
+  try {
+    audioCtx ||= new AudioContext();
+    const t = audioCtx.currentTime;
+    for (const [i, freq] of [880, 1318.5].entries()) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, t + i * 0.12);
+      gain.gain.linearRampToValueAtTime(0.12, t + i * 0.12 + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.35);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t + i * 0.12);
+      osc.stop(t + i * 0.12 + 0.4);
+    }
+  } catch {}
+}
+
+function updateSoundBtn() {
+  const btn = $('#sound-btn');
+  if (!btn) return;
+  btn.textContent = doneSound ? 'Sound on' : 'Sound off';
+  btn.title = doneSound ? 'A short sound when one of your AIs finishes. Click to mute.' : 'Muted. Click to hear a sound when one of your AIs finishes.';
+}
+
+const ownsPane = (p) => p.local || S.guestIds.has(p.id);
+
+function clearDone(p) {
+  if (!p.done) return;
+  p.done = false;
+  p.root.classList.remove('done');
+  if (p.ui?.done) p.ui.done.hidden = true;
+}
+
+function showDone(p) {
+  p.done = true;
+  p.root.classList.remove('done');
+  void p.root.offsetWidth; // restart the pulse
+  p.root.classList.add('done');
+  p.ui.done.hidden = false;
+  playDing();
+  const name = splitMember(p.member).filter(Boolean).join(' · ');
+  const task = S.members.get(p.member)?.intent;
+  notify(`${name} finished`, task || `${agentLabel(p.agent)} is waiting for you.`, () => {
+    clearDone(p);
+    p.term?.focus();
+  });
+}
+
+/** Called on every state change of a pane. */
+function trackDone(p, prev, st) {
+  if (!ownsPane(p)) return;
+  if (st === 'working') {
+    // Back to work before the settle time: same turn, keep its start.
+    if (p.doneTimer) clearTimeout(p.doneTimer);
+    else p.workStart = Date.now();
+    p.doneTimer = null;
+    clearDone(p);
+    return;
+  }
+  if (prev !== 'working' || !p.workStart) return;
+  const worked = Date.now() - p.workStart;
+  p.doneTimer = setTimeout(() => {
+    p.doneTimer = null;
+    p.workStart = 0;
+    if (worked >= DONE_MIN_WORK && ['waiting', 'sleeping'].includes(paneState(p))) showDone(p);
+  }, DONE_SETTLE);
 }
 
 /* ---------- Chat ---------- */
@@ -1002,6 +1081,13 @@ function pingChatButton() {
 
 function setupChat() {
   $('#chat-btn').addEventListener('click', () => ($('#chat').hidden ? openChat() : closeChat()));
+  updateSoundBtn();
+  $('#sound-btn')?.addEventListener('click', () => {
+    doneSound = !doneSound;
+    store.set('codev.doneSound', doneSound);
+    updateSoundBtn();
+    if (doneSound) playDing();
+  });
   $('#chat-close').addEventListener('click', closeChat);
   for (const tab of document.querySelectorAll('.chat-tab')) tab.addEventListener('click', () => showChatTab(tab.dataset.tab));
   $('#note-form').addEventListener('submit', (e) => {
@@ -1267,6 +1353,8 @@ function makePane({ id, member, local, title, agent = 'claude', model = '', crea
   const root = h('article', { class: `pane ${local ? 'local' : 'remote'}` }, head, h('div', { class: 'pane-body' }, wrap, convo));
   const pane = { id, member, local, title, agent: AGENTS[agent] ? agent : 'claude', model, root, head, host, wrap, waiting, convo, createdAt, view: null };
   S.panes.set(id, pane);
+  root.addEventListener('pointerdown', () => clearDone(pane));
+  root.addEventListener('focusin', () => clearDone(pane));
   buildConvo(pane);
   applyView(pane);
   layout();
@@ -1306,6 +1394,7 @@ function newTerminal(extra = {}) {
 
 /** Marks a terminal as being typed in, and tells teammates (only the fact, never the text). */
 function markTyping(p, d) {
+  clearDone(p);
   if (d === '\r') {
     // Enter sends the prompt: from here Claude is working, not you typing.
     if (p.lastKey) wsSend({ t: 'term-typing', id: p.id, done: true });
@@ -2016,6 +2105,7 @@ function buildHead(p) {
     label: splitMember(p.member)[1] ? h('span', { class: 'who-label' }, `· ${splitMember(p.member)[1]}`) : null,
     ai: h('span', { class: 'who-ai' }, agentLabel(p.agent)),
     state: h('span', { class: 'who-state' }),
+    done: h('span', { class: 'who-done', hidden: true, title: 'Finished. Click the window to dismiss.' }, '✓ Done'),
     intent: h('div', { class: 'intent' }),
     files: h('div', { class: 'files' }),
     // What is left on the DeepSeek account: only on your own DeepSeek terminals (the key is yours).
@@ -2025,7 +2115,7 @@ function buildHead(p) {
   };
   p.head.append(
     p.ui.bot,
-    h('div', { class: 'who-main' }, h('div', { class: 'who-line' }, p.ui.name, p.ui.label, p.ui.ai, p.ui.balance, p.ui.state), p.ui.intent, p.ui.files),
+    h('div', { class: 'who-main' }, h('div', { class: 'who-line' }, p.ui.name, p.ui.label, p.ui.ai, p.ui.balance, p.ui.state, p.ui.done), p.ui.intent, p.ui.files),
     p.ui.sideEl
   );
 }
@@ -2064,6 +2154,7 @@ function updateHead(p) {
   if (p.state !== st) {
     // A DeepSeek turn just ended: that is when the balance changes.
     if (p.ui.balance && p.state === 'working') refreshBalance(true);
+    trackDone(p, p.state, st);
     p.state = st;
     p.head.className = `pane-head st-${st}`;
     p.ui.state.textContent = p.local && st !== 'offline' ? `${STATE_LABEL[st]} · you` : STATE_LABEL[st];

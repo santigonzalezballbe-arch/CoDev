@@ -46,3 +46,14 @@ Canvis:
 - `test/discovery.test.js` (nou, 8 tests), `README.md` (secció "Teammates on the same project" i limitació).
 Proves: `npm test` 45/45 (inclou multicast real). GitHub real: ref creada, llegida, actualitzada i esborrada al repo CoDev. Prova completa amb dues finestres a la LAN: Maya troba la sala d'Alex des d'una altra còpia, truca, Alex accepta i Maya entra.
 Pendent: provar el camí per GitHub amb dues xarxes diferents de veritat (túnel de Cloudflare). Sense commit.
+
+## 2026-11-22 19:40
+
+Petició: un avís quan cada finestra (IA) acaba de treballar; triades: ressaltat al panell, so curt i notificació d'escriptori, només per a les finestres pròpies.
+Canvis:
+- `desktop/renderer.js`: `trackDone()` a `updateHead()` detecta el pas de `working` a `waiting`/`sleeping` en terminals locals i convidats d'aquest ordinador. Compta si ha treballat ≥ 8 s i queda quiet 3 s (evita sorolls de redibuixat). Llavors: distintiu "✓ Done" i pols verd al panell (s'esborra en clicar-hi, enfocar-lo o escriure-hi), "ding" amb WebAudio i notificació d'escriptori (només amb l'app en segon pla; en clicar-la porta la finestra al davant i enfoca el terminal).
+- `desktop/index.html`: botó "Sound on/off" a la barra (només app; es desa a localStorage).
+- `desktop/style.css`: `.who-done` i animació `done-pulse`.
+- `desktop/main.js` + `preload.cjs`: IPC `focus-window`.
+Proves: `npm test` 49/49. No provat en viu a l'app.
+Pendent: provar-ho a l'app real i ajustar els temps (8 s / 3 s) si cal.

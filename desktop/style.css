@@ -177,6 +177,10 @@ a.bar-btn { text-decoration: none; display: inline-block; }
   background: color-mix(in srgb, var(--ink) 12%, transparent); padding: 4px 7px 3px;
 }
 .who-balance.low { background: #ff6b6b; color: #0a0a0a; }
+.who-done { font: 700 12px/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+  background: #4dd0a1; color: #0a0a0a; padding: 4px 7px 3px; }
+.pane.done { animation: done-pulse 1.2s ease-out 3; }
+@keyframes done-pulse { 0% { box-shadow: 0 0 0 0 #4dd0a1; } 40% { box-shadow: 0 0 0 6px #4dd0a1; } 100% { box-shadow: 0 0 0 0 transparent; } }
 .intent { font-size: 16px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .intent.empty { opacity: 0.55; }
 .files { font-size: 14px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.8; }

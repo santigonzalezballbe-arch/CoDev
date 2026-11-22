@@ -247,6 +247,12 @@ ipcMain.handle('prepare-repo', async (_e, input) => {
 
 ipcMain.handle('setup-project', (_e, opts) => setupProject(opts));
 ipcMain.handle('copy', (_e, text) => clipboard.writeText(text));
+ipcMain.handle('focus-window', () => {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
 
 // The user's shell PATH (nvm, ~/.local/bin...). When the app is opened from a menu, the inherited PATH is minimal.
 let userPath;
