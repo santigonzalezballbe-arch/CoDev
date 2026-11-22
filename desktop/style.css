@@ -180,6 +180,17 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 .who-done { font: 700 12px/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
   background: #4dd0a1; color: #0a0a0a; padding: 4px 7px 3px; }
 .pane.done { animation: done-pulse 1.2s ease-out 3; }
+/* Veil over a finished window: "Done" and falling particles; moving the cursor over it fades it out. */
+.done-veil { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; cursor: default;
+  background: color-mix(in srgb, var(--term) 72%, transparent); backdrop-filter: blur(2px);
+  animation: veil-in 500ms ease-out; transition: opacity 400ms ease; }
+.done-veil.gone { opacity: 0; pointer-events: none; }
+.done-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.done-msg { position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; }
+.done-big { font: 800 clamp(28px, 6vw, 64px)/1 var(--display); letter-spacing: -0.03em; text-transform: uppercase;
+  background: #4dd0a1; color: #0a0a0a; padding: 10px 18px 8px; box-shadow: 0 0 40px color-mix(in srgb, #4dd0a1 45%, transparent); }
+.done-sub { font: 700 14px/1 var(--display); color: #e8e8e8; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.85; }
+@keyframes veil-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes done-pulse { 0% { box-shadow: 0 0 0 0 #4dd0a1; } 40% { box-shadow: 0 0 0 6px #4dd0a1; } 100% { box-shadow: 0 0 0 0 transparent; } }
 .intent { font-size: 16px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .intent.empty { opacity: 0.55; }

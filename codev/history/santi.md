@@ -74,3 +74,8 @@ Left to do: try it with a real release (0.4.5); the fix only applies from the ve
 Request: commit the relaunch fix and publish 0.4.5.
 Changed: package.json, package-lock.json (version 0.4.5); tag v0.4.5 pushed, the Release workflow builds the installers.
 Left to do: update from 0.4.4 to 0.4.5 (0.4.4 may still fail to reopen; open it by hand), then check that 0.4.5 → next reopens by itself.
+
+## 2026-11-22 20:10
+Request: make the "finished" notice on a window clearer, mainly for when you were away: a particle cascade besides "Done", gone when the cursor passes over.
+Changed: desktop/renderer.js — showVeil()/hideVeil(): when an AI finishes, a veil over the pane body with a big "✓ Done", how long it worked, and a canvas of falling particles that runs until you come back; a real cursor move over it fades it out (a still cursor does not), clicking/typing also clears it. No animation with prefers-reduced-motion. desktop/style.css — .done-veil, .done-canvas, .done-msg styles.
+Left to do: try it in the real app; the "Done" badge in the head stays until you click the window, as before.

@@ -1023,10 +1023,80 @@ function clearDone(p) {
   p.done = false;
   p.root.classList.remove('done');
   if (p.ui?.done) p.ui.done.hidden = true;
+  hideVeil(p);
 }
 
-function showDone(p) {
+/* A veil over the finished window: a big "Done" and a slow cascade of particles, so you see it
+   from across the room when you come back. Moving the cursor over it fades it out. */
+const fmtWorked = (ms) => {
+  const m = Math.round(ms / 60000);
+  return m < 1 ? `${Math.round(ms / 1000)} s` : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+};
+
+function showVeil(p, worked) {
+  hideVeil(p, true);
+  const body = p.root.querySelector('.pane-body');
+  if (!body) return;
+  const canvas = h('canvas', { class: 'done-canvas' });
+  const veil = h('div', { class: 'done-veil', title: 'Move the cursor here to see the window' },
+    canvas,
+    h('div', { class: 'done-msg' }, h('span', { class: 'done-big' }, '✓ Done'), h('span', { class: 'done-sub' }, `worked ${fmtWorked(worked)}`)));
+  body.append(veil);
+  const v = { el: veil, raf: 0 };
+  p.veil = v;
+  // Only a real move dismisses it: a cursor left still over the window does not.
+  veil.addEventListener('pointermove', () => hideVeil(p), { once: true });
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const ctx = canvas.getContext('2d');
+  const colors = ['#4dd0a1', '#7ee8c3', '#ffffff', '#ffd166', '#4dd0a1'];
+  let W = 0, H = 0, dpr = 1, parts = [], last = 0;
+  const spawn = (y) => ({
+    x: Math.random() * W, y: y ?? -10 - Math.random() * H * 0.3,
+    vy: 30 + Math.random() * 60, sway: Math.random() * Math.PI * 2, swaySpeed: 1 + Math.random() * 2,
+    size: 2 + Math.random() * 4, rot: Math.random() * Math.PI, spin: (Math.random() - 0.5) * 6,
+    color: colors[(Math.random() * colors.length) | 0], shape: Math.random() < 0.4 ? 'dot' : 'bit',
+  });
+  const resize = () => {
+    dpr = devicePixelRatio || 1;
+    W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    const n = Math.min(120, Math.max(30, Math.round((W * H) / 6000)));
+    while (parts.length < n) parts.push(spawn(Math.random() * H - H * 0.5));
+    parts.length = n;
+  };
+  const frame = (t) => {
+    v.raf = requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (t - (last || t)) / 1000);
+    last = t;
+    if (canvas.clientWidth !== W || canvas.clientHeight !== H) resize();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    for (const q of parts) {
+      q.y += q.vy * dt; q.sway += q.swaySpeed * dt; q.rot += q.spin * dt;
+      if (q.y > H + 10) Object.assign(q, spawn(-10));
+      ctx.globalAlpha = Math.min(1, Math.max(0.15, 1 - q.y / (H * 1.1)));
+      ctx.fillStyle = q.color;
+      const x = q.x + Math.sin(q.sway) * 12;
+      if (q.shape === 'dot') { ctx.beginPath(); ctx.arc(x, q.y, q.size / 2, 0, Math.PI * 2); ctx.fill(); }
+      else { ctx.save(); ctx.translate(x, q.y); ctx.rotate(q.rot); ctx.fillRect(-q.size / 2, -q.size, q.size, q.size * 2); ctx.restore(); }
+    }
+  };
+  v.raf = requestAnimationFrame(frame);
+}
+
+function hideVeil(p, now) {
+  const v = p.veil;
+  if (!v) return;
+  p.veil = null;
+  if (now) { cancelAnimationFrame(v.raf); v.el.remove(); return; }
+  v.el.classList.add('gone');
+  setTimeout(() => { cancelAnimationFrame(v.raf); v.el.remove(); }, 400);
+}
+
+function showDone(p, worked = 0) {
   p.done = true;
+  showVeil(p, worked);
   p.root.classList.remove('done');
   void p.root.offsetWidth; // restart the pulse
   p.root.classList.add('done');
@@ -1056,7 +1126,7 @@ function trackDone(p, prev, st) {
   p.doneTimer = setTimeout(() => {
     p.doneTimer = null;
     p.workStart = 0;
-    if (worked >= DONE_MIN_WORK && ['waiting', 'sleeping'].includes(paneState(p))) showDone(p);
+    if (worked >= DONE_MIN_WORK && ['waiting', 'sleeping'].includes(paneState(p))) showDone(p, worked);
   }, DONE_SETTLE);
 }
 
