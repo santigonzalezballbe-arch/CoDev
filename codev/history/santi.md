@@ -57,3 +57,9 @@ Canvis:
 - `desktop/main.js` + `preload.cjs`: IPC `focus-window`.
 Proves: `npm test` 49/49. No provat en viu a l'app.
 Pendent: provar-ho a l'app real i ajustar els temps (8 s / 3 s) si cal.
+
+## 2026-11-22 19:55
+
+Petició: treure versió nova per provar l'actualitzador amb l'avís de "Done".
+Canvis: `package.json` i `package-lock.json` a 0.4.4; etiqueta `v0.4.4` pujada perquè GitHub Actions compili i publiqui els instal·ladors.
+Pendent: comprovar que la release té els quatre instal·ladors i que la 0.4.3 instal·lada mostra l'avís d'actualització i s'actualitza.
