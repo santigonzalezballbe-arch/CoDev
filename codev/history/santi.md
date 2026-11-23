@@ -395,3 +395,36 @@ Pendent: el mateix de l'entrada anterior (claus reals, release).
 Petició: publicar els missatges sense límit, les finestres per projecte i les IA noves per API.
 Canvis: `package.json` i `package-lock.json` a 0.4.20; commit i etiqueta `v0.4.20` pujats perquè GitHub Actions compili els instal·ladors.
 Pendent: comprovar la release; provar Gemini/Grok amb claus reals.
+
+## 2026-11-23 23:30 — vídeo "6 agentes" v2 (més dinàmic, per a phonk)
+Petició: més animació i transicions (zooms violents als missatges i baixar al següent), i un hook fort a l'inici. Àudio triat pel Santi: "PHONK AURA SUK".
+Canvis (fora del repo, a `~/CoDev/codev-promo-video/`): `scripts/stage.mjs` ara grava el xat en un format alt (hi caben tots els missatges) i desa la posició de cada panell i missatge a `meta.json`. `src/AgentsV2.tsx`: motor de càmera (cops de zoom amb rebot, barridos ràpids amb desenfocament de moviment, sacsejades i flaixos). Hook amb 6 cops de zoom (1/6…6/6) i allunyament violent. Render a `out/CoDev-6-agentes-v2.mp4` (21 s, sense àudio).
+Pendent: sincronitzar els talls amb els beats del phonk quan el Santi enviï l'MP3; sense commit.
+
+## 2026-11-23 23:40 — guió èpic per al vídeo de 6 agents
+Petició: guió per a ElevenLabs amb veu èpica per al vídeo de 6 agents.
+Canvis (fora del repo): `~/CoDev/codev-promo-video/GUION-6-AGENTES.md`.
+Pendent: el Santi grava la veu; després cal ajustar els talls a la veu.
+
+## 2026-11-23 23:45 — guió 6 agents, versió cridada
+Petició: el guió anterior no convencia; vol que sembli que crida.
+Canvis (fora del repo): `~/CoDev/codev-promo-video/GUION-6-AGENTES.md` reescrit amb etiquetes [shouting]/[excited] i frases curtes.
+Pendent: el Santi grava la veu.
+
+## 2026-11-23 23:55 — vídeo 6 agents v3 (terminals nítids)
+Petició: els terminals es veien borrosos; l'àudio (phonk) el posarà el Santi des de TikTok.
+Canvis (fora del repo): `scripts/stage.mjs` grava la graella a 2160×3840 i el xat a 1620×5100, amb l'acció a la meitat de velocitat i el vídeo accelerat ×2 perquè la captura no perdi fotogrames. `src/AgentsV2.tsx`: temps reajustats i desenfocament de moviment només en moviments ràpids de càmera. Render a `out/CoDev-6-agentes-v3.mp4`.
+Pendent: el Santi el puja amb el so de TikTok; sense commit.
+
+## 2026-11-23 23:59 — "Baby CoDev": edit a l'estil del Creed edit de TikTok
+Petició: fer el famós "Creed edit" de TikTok però amb CoDev.
+Canvis (fora del repo): `~/CoDev/codev-promo-video/src/CreedEdit.tsx` (composició CoDevCreed). Mateixa estructura (provocació "baby CoDev" → "No me llames así" → cop → muntatge tallat al ritme → "¿Cómo te llamas?" → "CODEV!") amb les gravacions reals de l'app, aspecte de pel·lícula (franges negres, gra, gradació de color). Tots els temps són a l'objecte `T` per reajustar-los al so. Render a `out/CoDev-creed-edit.mp4` (25,5 s, sense àudio).
+Pendent: el Santi hi posa el so del Creed edit a TikTok; cal que digui en quin segon cauen "Don't call me that", el cop, "What's your name?" i "Creed!" per clavar els talls.
+
+## 2026-11-24 00:20 — edit "Without CoDev, life would be a mistake"
+Petició: còpia gairebé exacta del TikTok d'Areq enviat (WhatsApp Video 2026-11-24 at 00.00.30.mp4), reutilitzant-ne l'àudio, però sobre CoDev; oblidar el guió anterior.
+Canvis (fora del repo, a `~/CoDev/codev-promo-video/`): `src/MusicEdit.tsx` (composicions CoDevMusicEdit i CoDevMusicEditMuted). Mateix àudio (`public/edit-audio.mp3`, 0–62 s), mateixos ~65 talls (detectats amb ffmpeg al vídeo original) i títols sincronitzats amb el diàleg (transcrit amb faster-whisper), canviant "music" per CoDev: "WITHOUT CODEV / LIFE WOULD BE A MISTAKE", "CLAUDE · DEEPSEEK · CHATGPT · OLLAMA · CODEV… THIS IS CODEV", "NOT QUITE MY FILE", "HERE WE GO", i l'escena de l'iPod ("wait, wait… okay, go") com la IA que espera torn. Logo final de CoDev en lloc del de l'editor. Renders: `out/CoDev-music-edit-CON-AUDIO.mp4` i `out/CoDev-music-edit-SIN-AUDIO.mp4`.
+Pendent: revisió del Santi; sense commit.
+
+## 2026-11-24 00:07 — Santi closed the session
+<!-- codev:close ts=1795475227640 -->
