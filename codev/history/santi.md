@@ -299,3 +299,16 @@ Estat (17:00): els Tests de GitHub Actions de `v0.4.17` han passat; el workflow 
 
 ## 2026-11-23 17:27 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795451224694 room="CoDev" name="Santi" -->
+
+## 2026-11-23 17:41
+
+Petició: millorar la capçalera, que era una fila d'11 botons iguals. S'ha triat l'opció C (dues franges).
+
+Canvis:
+- `desktop/index.html`: la `.topbar` té dues franges. La negra (`.context`) porta la marca, «Room / nom», la presència (`#presence`), l'estat de connexió i Leave. La blanca (`.tools`) porta el selector de vista, Invite/History/Share/Sound/Get the app, Chat i «+ Another AI», que és l'únic botó ple. Els id no canvien.
+- `desktop/style.css`: estils nous (`.context`, `.tools`, `.tool-btn`, `.face`, `.leave`, punt de `.conn`), el selector de vista ara és un control segmentat i hi ha regles per a finestres estretes.
+- `desktop/renderer.js`: `renderPresence()`, cridada des de `renderHeads()`. Mostra una rodona per persona amb el seu color i un punt verd mentre alguna de les seves IA treballa; el tooltip diu quantes IA té.
+
+Proves: `npm test` 61/61. Captures de la vista web a 1300 i 900 px.
+
+Pendent: provar-ho a l'app d'escriptori amb terminals reals i amb una finestra molt estreta (menys de 600 px).
