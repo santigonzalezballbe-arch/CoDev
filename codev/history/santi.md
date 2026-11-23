@@ -290,3 +290,6 @@ Estat (17:00): els Tests de GitHub Actions de `v0.4.17` han passat; el workflow 
 
 ## 2026-11-23 17:18 — Santi closed the session
 <!-- codev:close ts=1795450699914 -->
+
+## 2026-11-23 17:18 — Santi closed the session
+<!-- codev:close ts=1795450702333 -->
