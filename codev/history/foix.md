@@ -35,3 +35,6 @@ Pendent: comprovar que la release té els instal·ladors; la 0.4.13/0.4.14 insta
 
 ## 2026-11-23 17:16 — Foix closed the session
 <!-- codev:close ts=1795450619729 -->
+
+## 2026-11-23 17:17 — Foix opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795450657758 room="CoDev" name="Foix" -->
