@@ -351,3 +351,16 @@ Pendent: comprovar la release i que el col·laborador de DiOrg instal·li la 0.4
 
 ## 2026-11-23 21:54 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795467264707 room="CoDev" name="Santi" -->
+
+## 2026-11-23 22:30 — vídeo promocional de CoDev
+Petició: fer un vídeo vertical estil TikTok per a CoDev, semblant al de referència (WhatsApp Video 2026-11-23 at 21.40.05.mp4), en castellà i amb la veu d'ElevenLabs.
+Canvis (fora del repo): projecte Remotion a `~/CoDev/codev-promo-video/` (guió `GUION.md`, veu `public/voz.mp3`, subtítols sincronitzats amb `src/words.json` via faster-whisper, 10 escenes a `src/scenes.tsx`). Render a `out/CoDev-promo.mp4` (1080×1920, 69 s). Al repo només aquesta entrada.
+Pendent: revisar el vídeo; potser afegir música/efectes de so; no s'ha fet commit.
+
+## 2026-11-23 23:00 — vídeo promocional v2 (imatges reals i so)
+Petició: millorar la primera escena, fer servir imatges reals de l'app i d'internet, i afegir efectes de so.
+Canvis (fora del repo, a `~/CoDev/codev-promo-video/`): `src/real.tsx` amb escenes noves que fan servir la gravació real `docs/codev-demo.gif` (convertida a vídeo, dins d'una finestra amb càmera i zooms), la icona de l'app (`build/icon.png`) i logos de simple-icons (Claude, DeepSeek, OpenAI, Ollama, Windows, Apple, Linux, GitHub). `src/sfx.tsx`: ~80 efectes sincronitzats (whoosh, impactes, pops, tecleig, risers). Render a `out/CoDev-promo-v2.mp4`.
+Pendent: que el Santi el revisi; no hi ha música de fons; sense commit.
+
+## 2026-11-23 22:53 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795470819968 room="CoDev" name="Santi" -->
