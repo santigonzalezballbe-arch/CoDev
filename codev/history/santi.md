@@ -428,3 +428,6 @@ Pendent: revisió del Santi; sense commit.
 
 ## 2026-11-24 00:07 — Santi closed the session
 <!-- codev:close ts=1795475227640 -->
+
+## 2026-11-24 00:07 — Santi closed the session
+<!-- codev:close ts=1795475230909 -->
