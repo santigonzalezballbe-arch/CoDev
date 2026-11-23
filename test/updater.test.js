@@ -36,3 +36,17 @@ test('checkLatest reports only a newer, published release', async () => {
   assert.equal(await checkLatest('0.5.0', { fetchImpl: rel() }), null);
   assert.equal(await checkLatest('0.4.2', { fetchImpl: rel({ prerelease: true }) }), null);
 });
+
+test('checkLatest falls back to the release page when the API is rate-limited', async () => {
+  const calls = [];
+  const fetchImpl = async (url, opts = {}) => {
+    calls.push({ url, auth: opts.headers?.Authorization });
+    if (url.includes('api.github.com')) return { ok: false, status: 403 };
+    return { status: 302, url, headers: { get: (h) => (h === 'location' ? 'https://github.com/x/y/releases/tag/v0.5.0' : null) } };
+  };
+  const found = await checkLatest('0.4.13', { fetchImpl, token: 'tok' });
+  assert.equal(calls[0].auth, 'Bearer tok');
+  assert.equal(found.version, '0.5.0');
+  assert.equal(pickAsset(found.assets, 'nsis').url, 'https://github.com/santigonzalezballbe-arch/CoDev/releases/download/v0.5.0/CoDev-Setup-0.5.0.exe');
+  assert.equal(await checkLatest('0.5.0', { fetchImpl }), null);
+});

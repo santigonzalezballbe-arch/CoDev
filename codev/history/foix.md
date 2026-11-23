@@ -9,3 +9,8 @@ Canvis:
 - `desktop/main.js`: passa el token (`ghToken()`) a `checkLatest` i registra l'error en lloc d'ignorar-lo.
 - `test/updater.test.js`: test del fallback. Provat en viu amb l'API bloquejada: detecta 0.4.14 i l'instal·lador respon 200.
 Pendent: release 0.4.15 perquè arribi a les apps instal·lades (la 0.4.13 encara té el codi vell; veurà la 0.4.14 quan es reiniciï el límit). Els 6 tests que fallen a Windows ja fallaven abans (auth, discovery, e2e, guests, harness-tools). Sense commit.
+
+## 2026-11-23 16:25 — release 0.4.15
+Petició: publicar l'arranjament de l'avís d'actualització.
+Canvis: `package.json` i `package-lock.json` a 0.4.15; commit i etiqueta `v0.4.15` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
+Pendent: comprovar que la release té els instal·ladors; la 0.4.13/0.4.14 instal·lada només veurà l'avís quan l'API no estigui limitada (o instal·lar la 0.4.15 a mà un cop); a partir de la 0.4.15 ja no depèn del límit.

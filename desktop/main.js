@@ -1148,7 +1148,7 @@ let updating = false;
 async function checkForUpdate() {
   if (updating) return;
   try {
-    const found = await checkLatest(currentVersion());
+    const found = await checkLatest(currentVersion(), { token: await ghToken().catch(() => null) });
     if (!found) return;
     update = found;
     win?.webContents.send('update-available', {
@@ -1156,7 +1156,9 @@ async function checkForUpdate() {
       current: currentVersion(),
       auto: updateKind() !== 'page',
     });
-  } catch {} // offline or rate-limited: try again later
+  } catch (err) {
+    console.warn('[codev] update check failed:', err.message); // offline: try again later
+  }
 }
 ipcMain.handle('update-check', () => checkForUpdate());
 // Desktops like KDE start CoDev as a systemd service: when it quits, systemd kills everything

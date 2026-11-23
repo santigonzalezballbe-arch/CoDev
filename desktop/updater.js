@@ -46,13 +46,49 @@ export function pickAsset(assets, kind) {
   return test ? assets.find((a) => test(a.name)) || null : null;
 }
 
-/** Latest release on GitHub, or null if it is not newer than `current`. */
-export async function checkLatest(current, { fetchImpl = fetch } = {}) {
-  const res = await fetchImpl(`https://api.github.com/repos/${REPO}/releases/latest`, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'CoDev-updater' },
+/** The installer names the Release workflow publishes for a version (see "artifactName" in package.json). */
+export function knownAssets(version) {
+  const base = `https://github.com/${REPO}/releases/download/v${version}/`;
+  return [`CoDev-${version}-x86_64.AppImage`, `CoDev-${version}-amd64.deb`, `CoDev-Setup-${version}.exe`, `CoDev-${version}-arm64.dmg`].map(
+    (name) => ({ name, size: 0, url: base + encodeURIComponent(name), digest: null })
+  );
+}
+
+/**
+ * Latest version from the github.com page, which is not under the API's rate limit
+ * (60 requests an hour per IP without a token): /releases/latest redirects to /releases/tag/vX.
+ */
+async function latestFromPage(current, fetchImpl) {
+  const res = await fetchImpl(RELEASES_PAGE, {
+    method: 'HEAD',
+    redirect: 'manual',
+    headers: { 'User-Agent': 'CoDev-updater' },
     signal: AbortSignal.timeout(15000),
   });
-  if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+  const tag = (res.headers.get('location') || res.url || '').match(/\/releases\/tag\/([^/?#]+)/)?.[1];
+  if (!tag) throw new Error(`GitHub answered ${res.status} without a release`);
+  const version = decodeURIComponent(tag).replace(/^v/, '');
+  if (compareVersions(version, current) <= 0) return null;
+  return { version, url: `https://github.com/${REPO}/releases/tag/${tag}`, assets: knownAssets(version) };
+}
+
+/** Latest release on GitHub, or null if it is not newer than `current`. */
+export async function checkLatest(current, { fetchImpl = fetch, token = null } = {}) {
+  let res;
+  try {
+    res = await fetchImpl(`https://api.github.com/repos/${REPO}/releases/latest`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'CoDev-updater',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch {
+    res = null;
+  }
+  // Rate-limited (403/429), a bad token (401) or the API down: ask the web page instead.
+  if (!res?.ok) return latestFromPage(current, fetchImpl);
   const rel = await res.json();
   if (rel.draft || rel.prerelease || compareVersions(rel.tag_name, current) <= 0) return null;
   return {
