@@ -348,3 +348,6 @@ Pendent: comprovar la release i que el col·laborador de DiOrg instal·li la 0.4
 
 ## 2026-11-23 19:29 — Santi closed the session
 <!-- codev:close ts=1795458564486 -->
+
+## 2026-11-23 21:54 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795467264707 room="CoDev" name="Santi" -->
