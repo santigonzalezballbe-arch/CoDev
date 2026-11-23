@@ -370,3 +370,23 @@ Pendent: que el Santi el revisi; no hi ha música de fons; sense commit.
 
 ## 2026-11-23 22:57 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795471058667 room="CoDev" name="Santi" -->
+
+## 2026-11-23 23:10 — vídeo "6 agentes" para audio viral de TikTok
+Petició: vídeo vertical sense veu (l'àudio viral el posa el Santi a TikTok) on es vegin 6 agents Claude i DeepSeek a l'app i el xat entre ells.
+Canvis (fora del repo, a `~/CoDev/codev-promo-video/`): `scripts/stage.mjs` arrenca un servidor CoDev local, hi connecta 6 terminals simulats (Ana/Marta/Nil amb Claude, Leo/Pau/Iris amb DeepSeek) amb tasques, reclams de fitxers, un bloqueig i notes entre IA, i grava la vista web real de l'app (graella i xat) amb Playwright. `src/Agents.tsx`: muntatge de 20,5 s amb zooms i textos. Render a `out/CoDev-6-agentes.mp4` (sense àudio).
+Nota: a Playwright, el botó "Enter the room" de la vista web no envia el formulari amb un clic; amb `requestSubmit()` sí. No s'ha investigat més.
+Pendent: el Santi hi posa l'àudio a TikTok; sense commit.
+
+## 2026-11-23 23:15 — missatges sencers, diversos projectes alhora i més IA
+Petició: que no es tallin mai els missatges (xat i historial), poder treballar en diversos projectes a la vegada i afegir més IA (Gemini, Grok…) via API.
+Canvis:
+- Límits de caràcters fora: `server/server.js` (prompt, respostes, notes, ordres, diffs; cos fins a 50 MB), `server/rooms.js` (intent sencer), `cli/hook.js`, `cli/harness.js`, `cli/harness-tools.js` i `cli/mcp.js` (codev_search_history ja no talla a 700).
+- Diversos projectes: `desktop/main.js` passa d'estat global a un context per finestra (sala, terminals, historial, convidats, anunci a GitHub, keep-awake); servidor, túnel i xarxa compartits. Botó "+ Project" (`index.html`, `renderer.js`, `preload.cjs`), Ctrl+Shift+N, i obrir CoDev un altre cop obre una finestra nova. Tancar una finestra només surt de la seva sala. `desktop/discovery.js`: diversos anuncis LAN per app.
+- IA noves per API dins el DeepSeek Harness (rutes pi-ai): Gemini, Grok, OpenRouter, OpenAI API, Mistral, Kimi i Groq (`desktop/agents.js`; claus xifrades com la de DeepSeek; models llegits del catàleg instal·lat del Harness). Provat Gemini de punta a punta amb clau falsa (Google respon "API key not valid").
+- Tests nous a `test/agents.test.js` i `test/discovery.test.js` (65/65). README actualitzat.
+Pendent: provar amb claus reals de Gemini/Grok; provar dues finestres amb sales compartides en línia alhora; publicar versió nova; sense commit.
+
+## 2026-11-23 23:20 — detall de `desktop/agents.js`
+Petició: més IA per API (Gemini, Grok…).
+Canvis: `desktop/agents.js` defineix 7 agents de tipus API (`route`, `keyEnv`, `keyUrl`, models suggerits). `harnessPatch` genera la ruta de `dsh-llm-pi-ai` amb `apiKeyEnv`, i `apiModels()` llegeix els models del catàleg pi-ai instal·lat. Així s'afegeixen proveïdors sense codi nou al Harness.
+Pendent: el mateix de l'entrada anterior (claus reals, release).
