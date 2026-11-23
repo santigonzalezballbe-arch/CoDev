@@ -345,3 +345,6 @@ Pendent: comprovar la release i que el col·laborador de DiOrg instal·li la 0.4
 
 ## 2026-11-23 19:29 — Santi closed the session
 <!-- codev:close ts=1795458562179 -->
+
+## 2026-11-23 19:29 — Santi closed the session
+<!-- codev:close ts=1795458564486 -->
