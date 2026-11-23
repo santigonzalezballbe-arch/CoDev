@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { startServer } from '../server/server.js';
 import { setupProject, useRunner, getRunner, installCodexHooks } from '../cli/init.js';
 import { projectRules } from '../cli/config.js';
-import { AGENTS, spawnSpec, harnessPatch, ollamaModels } from './agents.js';
+import { AGENTS, spawnSpec, harnessPatch, ollamaModels, apiModels } from './agents.js';
 import { ensureCloudflared } from './cloudflared.js';
 import { History } from './history.js';
 import { openSessions, needsClose, closeMarker } from './presence.js';
@@ -29,9 +29,40 @@ import {
 import { checkLatest, installKind, install as installUpdate, RELEASES_PAGE } from './updater.js';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
-const ptys = new Map(); // id -> process
-let win;
+const ptys = new Map(); // "<window>:<id>" -> process
 let hostedServer = null;
+
+/*
+ * One window per project: every window has its own room, terminals, history and guests, so several
+ * projects can be worked on at once. The embedded server, the online link (tunnel) and the network
+ * listener are shared: one server hosts any number of rooms.
+ */
+const contexts = new Map(); // webContents id -> window context
+function ctxOf(sender) {
+  let c = contexts.get(sender.id);
+  if (!c) {
+    c = {
+      id: sender.id,
+      sender,
+      win: BrowserWindow.fromWebContents(sender),
+      history: null,
+      hostCtx: null, // { root, room, name } of the room this window hosts
+      hostIdentity: null, // { rootCommit, repo, fp } of that project
+      ghPublished: null, // { repo, name } while that room is written in the repository
+      ghTimer: null,
+      sharing: false, // this window asked for the online link
+      awake: false,
+    };
+    contexts.set(sender.id, c);
+  }
+  return c;
+}
+const ptyKey = (sender, id) => `${sender.id}:${id}`;
+const leaving = new Set(); // windows closing: their rooms are being left (the quit waits for them)
+const allWindows = () => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+const mainWindow = () => BrowserWindow.getFocusedWindow() || allWindows()[0] || null;
+const sendAll = (channel, ...args) => allWindows().forEach((w) => w.webContents.send(channel, ...args));
+const ctxByRoom = (room) => [...contexts.values()].find((c) => c.hostCtx && c.hostCtx.room === room) || null;
 
 // Linux desktops may offer more than one secret store (KWallet, gnome-keyring). If the one Electron
 // picks is not running, safeStorage cannot save the DeepSeek key. CODEV_PASSWORD_STORE chooses it.
@@ -40,7 +71,8 @@ if (process.platform === 'linux' && process.env.CODEV_PASSWORD_STORE) {
 }
 
 function createWindow() {
-  win = new BrowserWindow({
+  const prev = mainWindow();
+  const win = new BrowserWindow({
     width: 1500,
     height: 920,
     minWidth: 480,
@@ -54,17 +86,44 @@ function createWindow() {
       sandbox: true,
     },
   });
+  // A new window opens a little below and to the right of the current one, so both are visible.
+  if (prev) {
+    const [x, y] = prev.getPosition();
+    win.setPosition(x + 36, y + 36);
+  }
   win.loadFile(path.join(DIR, 'index.html'));
-  // F12 opens DevTools (there is no menu, so Ctrl+C/Ctrl+V go straight to the terminal).
-  win.webContents.on('before-input-event', (_e, input) => {
-    if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools();
+  const wc = win.webContents;
+  const wcId = wc.id;
+  // F12 opens DevTools; Ctrl+Shift+N (Cmd+Shift+N) opens a window for another project. There is no
+  // menu, so Ctrl+C/Ctrl+V go straight to the terminal.
+  wc.on('before-input-event', (e, input) => {
+    if (input.type !== 'keyDown') return;
+    if (input.key === 'F12') wc.toggleDevTools();
+    else if ((input.control || input.meta) && input.shift && input.key.toLowerCase() === 'n') {
+      e.preventDefault();
+      createWindow();
+    }
+  });
+  // Closing a window leaves its room (the other windows keep theirs).
+  wc.once('destroyed', () => {
+    const c = contexts.get(wcId);
+    contexts.delete(wcId);
+    if (c) leaving.add(leaveRoom(c).catch(() => {}));
+  });
+  wc.once('did-finish-load', () => {
+    if (update) wc.send('update-available', { version: update.version, current: currentVersion(), auto: updateKind() !== 'page' });
   });
   // External links open in the browser, not inside the app.
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  wc.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
+  return win;
 }
+ipcMain.handle('new-window', () => {
+  createWindow();
+  return true;
+});
 
 function lanAddresses(port) {
   const out = [];
@@ -74,8 +133,8 @@ function lanAddresses(port) {
   return out;
 }
 
-ipcMain.handle('pick-folder', async () => {
-  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Choose the project folder' });
+ipcMain.handle('pick-folder', async (e) => {
+  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ['openDirectory'], title: 'Choose the project folder' });
   return r.canceled ? null : r.filePaths[0];
 });
 
@@ -104,7 +163,18 @@ ipcMain.handle('host-server', async (_e, requested = 4321) => {
 /* ---------- Sharing over the internet (Cloudflare quick tunnel) ---------- */
 ipcMain.handle('share-start', async (e) => {
   if (!hostedServer) throw new Error('Create a room first.');
-  if (tunnel) return { url: tunnel.url };
+  const ctx = ctxOf(e.sender);
+  ctx.sharing = true;
+  // One link for the whole app: every room of this server is reachable through it.
+  if (tunnel?.ready) {
+    announceRoom(ctx);
+    return { url: tunnel.url };
+  }
+  const failed = (err) => {
+    ctx.sharing = false;
+    throw err;
+  };
+  if (tunnel?.starting) return tunnel.starting.then((r) => (announceRoom(ctx), r), failed);
   const PATH = await getUserPath();
   const port = hostedServer.address().port;
   // Use the user's cloudflared if they have one; otherwise download it once (version and SHA-256 pinned).
@@ -115,7 +185,7 @@ ipcMain.handle('share-start', async (e) => {
     dataDir: app.getPath('userData'),
     onProgress: (p) => !e.sender.isDestroyed() && e.sender.send('share-progress', p),
   });
-  return new Promise((resolve, reject) => {
+  const starting = new Promise((resolve, reject) => {
     const proc = spawn(bin, ['tunnel', '--no-autoupdate', '--url', `http://localhost:${port}`], {
       env: { ...process.env, PATH },
     });
@@ -127,15 +197,17 @@ ipcMain.handle('share-start', async (e) => {
     const onData = (chunk) => {
       log += chunk;
       const m = log.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-      if (m && !tunnel) {
+      if (m && !tunnel?.url) {
         clearTimeout(timer);
-        tunnel = { proc, url: m[0] };
+        tunnel = { ...tunnel, proc, url: m[0] };
         // Cloudflare prints the address a few seconds before it resolves in DNS:
         // only report the room as online once the public address really answers.
         waitUntilReachable(m[0]).then(
           () => {
+            if (tunnel?.proc === proc) tunnel.ready = true;
             resolve({ url: m[0] });
-            announceRoom(); // teammates on the same GitHub repository can find it now
+            // Teammates on the same GitHub repository can find the rooms now.
+            for (const c of contexts.values()) if (c.sharing) announceRoom(c);
           },
           (err) => {
             proc.kill();
@@ -148,6 +220,7 @@ ipcMain.handle('share-start', async (e) => {
     proc.stderr.on('data', onData);
     proc.on('error', (err) => {
       clearTimeout(timer);
+      if (tunnel?.starting === starting) tunnel = null;
       reject(
         new Error(
           err.code === 'ENOENT' || err.code === 'EACCES'
@@ -158,9 +231,12 @@ ipcMain.handle('share-start', async (e) => {
     });
     proc.on('exit', () => {
       clearTimeout(timer);
-      if (tunnel?.proc === proc) tunnel = null;
+      if (tunnel?.proc === proc || tunnel?.starting === starting) tunnel = null;
+      reject(new Error('The online link closed.'));
     });
   });
+  tunnel = { starting };
+  return starting.catch(failed);
 });
 
 async function waitUntilReachable(url, timeoutMs = 90_000) {
@@ -175,12 +251,19 @@ async function waitUntilReachable(url, timeoutMs = 90_000) {
   throw new Error('The online link did not come up in time. Try again in a moment.');
 }
 
-ipcMain.handle('share-stop', async () => {
-  tunnel?.proc.kill();
-  tunnel = null;
-  await unannounceGithub();
+ipcMain.handle('share-stop', async (e) => {
+  const ctx = ctxOf(e.sender);
+  ctx.sharing = false;
+  stopTunnelIfUnused();
+  await unannounceGithub(ctx);
   return true;
 });
+/** The online link is shared by every window: it closes when no window wants it any more. */
+function stopTunnelIfUnused() {
+  if ([...contexts.values()].some((c) => c.sharing)) return;
+  tunnel?.proc?.kill();
+  tunnel = null;
+}
 
 /* ---------- GitHub ---------- */
 const run = (cmd, args, opts = {}) =>
@@ -370,7 +453,8 @@ ipcMain.handle('prepare-repo', async (_e, input) => {
 
 ipcMain.handle('setup-project', (_e, opts) => setupProject(opts));
 ipcMain.handle('copy', (_e, text) => clipboard.writeText(text));
-ipcMain.handle('focus-window', () => {
+ipcMain.handle('focus-window', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
   win.show();
@@ -379,12 +463,17 @@ ipcMain.handle('focus-window', () => {
 
 // While an AI is working the screen stays on and does not lock, as when a video is playing.
 let awakeId = null;
-ipcMain.handle('keep-awake', (_e, on) => {
+function updateAwake() {
+  const on = [...contexts.values()].some((c) => c.awake);
   if (on && awakeId === null) awakeId = powerSaveBlocker.start('prevent-display-sleep');
   else if (!on && awakeId !== null) {
     powerSaveBlocker.stop(awakeId);
     awakeId = null;
   }
+}
+ipcMain.handle('keep-awake', (e, on) => {
+  ctxOf(e.sender).awake = !!on;
+  updateAwake();
 });
 
 // The user's shell PATH (nvm, ~/.local/bin...). When the app is opened from a menu, the inherited PATH is minimal.
@@ -582,12 +671,30 @@ function findDsh(PATH) {
   return null;
 }
 
+/** The pi-ai model catalog of one provider, from the installed DeepSeek Harness (null if not found). */
+function piCatalog(dsh, route) {
+  if (!dsh || !/^[a-z0-9-]+$/.test(route)) return null;
+  const rel = path.join('@earendil-works', 'pi-ai', 'dist', 'providers', 'data', `${route}.json`);
+  for (let dir = path.dirname(dsh), i = 0; i < 8 && dir !== path.dirname(dir); dir = path.dirname(dir), i++) {
+    for (const file of [path.join(dir, 'node_modules', rel), path.join(dir, rel)]) {
+      try {
+        return JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch {}
+    }
+  }
+  return null;
+}
+
 ipcMain.handle('agents-info', async () => {
   const PATH = await getUserPath();
+  const dsh = findDsh(PATH);
+  const keyed = Object.values(AGENTS).filter((a) => a.needsKey);
   return {
     agents: AGENTS,
-    installed: { claude: !!findCommand(PATH, 'claude'), codex: !!findCommand(PATH, 'codex'), dsh: !!findDsh(PATH) },
-    hasKey: { deepseek: !!getKey('deepseek') },
+    installed: { claude: !!findCommand(PATH, 'claude'), codex: !!findCommand(PATH, 'codex'), dsh: !!dsh },
+    hasKey: Object.fromEntries(keyed.map((a) => [a.id, !!getKey(a.id)])),
+    // The models each API provider offers, from the Harness's own catalog (so they always exist there).
+    models: Object.fromEntries(keyed.filter((a) => a.api).map((a) => [a.id, apiModels(a.id, (route) => piCatalog(dsh, route))])),
     ollama: await ollamaModels(),
     secureStorage: hasSecureStorage(),
   };
@@ -618,7 +725,7 @@ ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agen
           'codev_claim_files before changing a file (if it is held by someone else, leave it alone), codev_release_files after, ' +
           'and codev_team_status to see your teammates. Keep the codev/history log as instructed.',
       });
-      const patchFile = path.join(app.getPath('userData'), 'harness', `${String(id).replace(/[^\w.-]/g, '_')}.yml`);
+      const patchFile = path.join(app.getPath('userData'), 'harness', `${ptyKey(e.sender, id).replace(/[^\w.-]/g, '_')}.yml`);
       fs.mkdirSync(path.dirname(patchFile), { recursive: true });
       fs.writeFileSync(patchFile, spec.patch);
       const runner = getRunner();
@@ -638,11 +745,12 @@ ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agen
         CODEV_DSH: dsh,
         CODEV_NODE: node,
         CODEV_HARNESS_AGENT: agentId,
+        CODEV_HARNESS_LABEL: a.label,
         CODEV_HARNESS_MODEL: spec.model,
         CODEV_HARNESS_PATCH: patchFile,
         CODEV_HARNESS_MCP: JSON.stringify(mcp),
         DSH_PERMISSION_MODE: 'danger-full-access',
-        ...(a.needsKey ? { DEEPSEEK_API_KEY: key } : { OLLAMA_API_KEY: 'ollama' }),
+        ...(a.needsKey ? { [a.keyEnv || 'DEEPSEEK_API_KEY']: key } : { OLLAMA_API_KEY: 'ollama' }),
       };
       unset = ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL'];
     } else {
@@ -689,13 +797,15 @@ ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agen
     cwd,
     env: { ...base, PATH, ...ownGithubEnv(), ...env, ...extraEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'CoDev' },
   });
-  ptys.set(id, proc);
-  if ((command || agent) && env?.CODEV_NAME) aiSessions.set(id, { root: env.CODEV_ROOT || cwd, name: env.CODEV_NAME, since: Date.now() });
+  const key = ptyKey(e.sender, id);
+  ptys.get(key)?.kill(); // the same terminal id again (a reloaded window): the old process goes
+  ptys.set(key, proc);
+  if ((command || agent) && env?.CODEV_NAME) aiSessions.set(key, { root: env.CODEV_ROOT || cwd, name: env.CODEV_NAME, since: Date.now() });
   const sender = e.sender;
   proc.onData((data) => !sender.isDestroyed() && sender.send('pty-data', id, data));
   proc.onExit(({ exitCode }) => {
-    ptys.delete(id);
-    endSession(id, 3000);
+    if (ptys.get(key) === proc) ptys.delete(key);
+    endSession(key, 3000);
     if (!sender.isDestroyed()) sender.send('pty-exit', id, exitCode);
   });
   return true;
@@ -762,26 +872,28 @@ function closeDeadAiSessions() {
 }
 const endAllSessions = () => Promise.all([...aiSessions.keys()].map((id) => endSession(id)));
 
-ipcMain.on('pty-write', (_e, id, data) => ptys.get(id)?.write(data));
-ipcMain.on('pty-resize', (_e, id, cols, rows) => {
+ipcMain.on('pty-write', (e, id, data) => ptys.get(ptyKey(e.sender, id))?.write(data));
+ipcMain.on('pty-resize', (e, id, cols, rows) => {
   try {
-    ptys.get(id)?.resize(cols, rows);
+    ptys.get(ptyKey(e.sender, id))?.resize(cols, rows);
   } catch {}
 });
-ipcMain.on('pty-kill', (_e, id) => {
-  ptys.get(id)?.kill();
-  ptys.delete(id);
+ipcMain.on('pty-kill', (e, id) => {
+  const key = ptyKey(e.sender, id);
+  ptys.get(key)?.kill();
+  ptys.delete(key);
 });
 
 /* ---------- Local history (<project>/.codev/history.jsonl) ---------- */
-let history = null;
-ipcMain.handle('history-open', (_e, { root }) => {
-  history = new History(path.join(root, '.codev', 'history.jsonl'));
-  return history.file;
+ipcMain.handle('history-open', (e, { root }) => {
+  const c = ctxOf(e.sender);
+  c.history = new History(path.join(root, '.codev', 'history.jsonl'));
+  return c.history.file;
 });
-ipcMain.handle('history-append', (_e, events, room) => (history ? history.append(events, room) : 0));
-ipcMain.handle('history-read', () => (history ? history.read() : []));
-ipcMain.handle('history-reveal', () => {
+ipcMain.handle('history-append', (e, events, room) => ctxOf(e.sender).history?.append(events, room) ?? 0);
+ipcMain.handle('history-read', (e) => ctxOf(e.sender).history?.read() ?? []);
+ipcMain.handle('history-reveal', (e) => {
+  const history = ctxOf(e.sender).history;
   if (history) {
     fs.mkdirSync(path.dirname(history.file), { recursive: true });
     if (!fs.existsSync(history.file)) fs.writeFileSync(history.file, '');
@@ -795,19 +907,19 @@ ipcMain.handle('history-reveal', () => {
 // It only starts if the host clicks Allow. It runs in its own git worktree (branch codev/<name>) and
 // with a throwaway Claude config folder, so the guest signs in with their own Claude account and
 // nothing of theirs stays here when they close it.
-let hostCtx = null; // { root, room, name } of the room this app hosts
-const guests = new Map(); // id -> { proc, configDir, member }
-const guestAsks = new Map(); // request id -> resolve(allowed)
+const guests = new Map(); // id -> { proc, configDir, member, ctx }
+const guestAsks = new Map(); // request id -> { resolve(allowed), ctx }
 let askSeq = 0;
 
-ipcMain.handle('host-context', (_e, ctx) => {
-  hostCtx = ctx;
-  hostIdentity = null;
-  announceRoom();
+ipcMain.handle('host-context', (e, hostCtx) => {
+  const c = ctxOf(e.sender);
+  c.hostCtx = hostCtx;
+  c.hostIdentity = null;
+  announceRoom(c);
   return true;
 });
 ipcMain.handle('guest-decision', (_e, reqId, allow) => {
-  guestAsks.get(reqId)?.(!!allow);
+  guestAsks.get(reqId)?.resolve(!!allow);
   guestAsks.delete(reqId);
   return true;
 });
@@ -816,7 +928,11 @@ ipcMain.handle('guest-stop', (_e, id) => {
   return true;
 });
 
-const notifyGuests = () => win && !win.isDestroyed() && win.webContents.send('guests', [...guests.keys()]);
+const notifyGuests = () => {
+  for (const c of contexts.values()) {
+    if (!c.sender.isDestroyed()) c.sender.send('guests', [...guests].filter(([, g]) => g.ctx === c).map(([id]) => id));
+  }
+};
 const slug = (s) => s.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'guest';
 
 async function isGitRepo(root) {
@@ -828,7 +944,7 @@ async function isGitRepo(root) {
 }
 
 /** The guest's own copy of the project: a git worktree on branch codev/<name>, or the same folder. */
-async function guestWorkspace(member) {
+async function guestWorkspace(hostCtx, member) {
   const root = hostCtx.root;
   if (!(await isGitRepo(root))) return { dir: root, branch: null };
   const branch = `codev/${slug(member)}`;
@@ -845,18 +961,19 @@ async function guestWorkspace(member) {
   return { dir, branch };
 }
 
-function askHost(req, plan, timeoutMs = 120_000) {
+function askHost(ctx, req, plan, timeoutMs = 120_000) {
+  const win = ctx.win;
   if (!win || win.isDestroyed()) return Promise.resolve(false);
   const reqId = ++askSeq;
   win.webContents.send('guest-request', { reqId, member: req.member, ...plan });
   if (win.isMinimized()) win.restore();
   win.flashFrame(true);
   return new Promise((resolve) => {
-    guestAsks.set(reqId, resolve);
+    guestAsks.set(reqId, { resolve, ctx });
     setTimeout(() => {
       if (guestAsks.has(reqId)) {
         guestAsks.delete(reqId);
-        win?.webContents.send('guest-request-expired', reqId);
+        if (!win.isDestroyed()) win.webContents.send('guest-request-expired', reqId);
         resolve(false);
       }
     }, timeoutMs);
@@ -866,13 +983,15 @@ function askHost(req, plan, timeoutMs = 120_000) {
 const guestHooks = {
   async open(req, reply) {
     const deny = (reason) => reply({ t: 'guest-denied', id: req.id, reason });
-    if (!hostCtx || req.room !== hostCtx.room) return deny('The host is not in this room any more.');
+    const ctx = ctxByRoom(req.room);
+    const hostCtx = ctx?.hostCtx;
+    if (!hostCtx) return deny('The host is not in this room any more.');
     if (guests.has(req.id)) return deny('That terminal is already open.');
     const sameFolder = !(await isGitRepo(hostCtx.root));
     const plan = { sameFolder, branch: sameFolder ? null : `codev/${slug(req.member)}`, project: path.basename(hostCtx.root) };
-    if (!(await askHost(req, plan))) return deny(`${hostCtx.name} did not let you in this time.`);
+    if (!(await askHost(ctx, req, plan))) return deny(`${hostCtx.name} did not let you in this time.`);
     try {
-      const { dir } = await guestWorkspace(req.member);
+      const { dir } = await guestWorkspace(hostCtx, req.member);
       const configDir = fs.mkdtempSync(path.join(app.getPath('userData'), 'guest-'));
       const PATH = await getUserPath();
       const claude = PATH.split(':').map((d) => path.join(d, 'claude')).find((f) => fs.existsSync(f));
@@ -894,7 +1013,7 @@ const guestHooks = {
         cwd: dir,
         env: { ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'CoDev' },
       });
-      guests.set(req.id, { proc, configDir, member: req.member });
+      guests.set(req.id, { proc, configDir, member: req.member, ctx });
       proc.onData((d) => reply({ t: 'guest-data', id: req.id, d }));
       proc.onExit(({ exitCode }) => {
         reply({ t: 'guest-exit', id: req.id, code: exitCode });
@@ -928,28 +1047,35 @@ const guestHooks = {
 /* ---------- Leaving the room: back to the start screen ---------- */
 // Everything tied to the room stops (terminals, guests, the online link, the announcements); the
 // embedded server keeps running, so creating a room again reuses it.
-ipcMain.handle('leave-room', async () => {
-  endAllSessions();
-  for (const p of ptys.values()) {
+// Only this window's room: the other windows (other projects) keep theirs.
+async function leaveRoom(c) {
+  const mine = (key) => key.startsWith(`${c.id}:`);
+  const keys = [...ptys.keys()].filter(mine);
+  const closing = Promise.all([...aiSessions.keys()].filter(mine).map((k) => endSession(k))); // before the kills
+  for (const k of keys) {
     try {
-      p.kill();
+      ptys.get(k).kill();
     } catch {}
+    ptys.delete(k);
   }
-  ptys.clear();
-  for (const id of [...guests.keys()]) guestHooks.close(id);
-  for (const resolve of guestAsks.values()) resolve(false);
-  guestAsks.clear();
-  tunnel?.proc.kill();
-  tunnel = null;
-  lan?.stop();
-  hostCtx = null;
-  hostIdentity = null;
-  history = null;
-  if (awakeId !== null) {
-    powerSaveBlocker.stop(awakeId);
-    awakeId = null;
+  for (const [id, g] of [...guests]) if (g.ctx === c) guestHooks.close(id);
+  for (const [reqId, a] of [...guestAsks]) {
+    if (a.ctx !== c) continue;
+    a.resolve(false);
+    guestAsks.delete(reqId);
   }
-  await Promise.race([unannounceGithub().catch(() => {}), new Promise((r) => setTimeout(r, 4000))]);
+  c.sharing = false;
+  stopTunnelIfUnused();
+  lan?.stop(c.id);
+  c.hostCtx = null;
+  c.hostIdentity = null;
+  c.history = null;
+  c.awake = false;
+  updateAwake();
+  await Promise.race([Promise.all([unannounceGithub(c).catch(() => {}), closing]), new Promise((r) => setTimeout(r, 4000))]);
+}
+ipcMain.handle('leave-room', async (e) => {
+  await leaveRoom(ctxOf(e.sender));
   return true;
 });
 
@@ -960,9 +1086,6 @@ const INSTANCE = crypto.randomUUID();
 let lan = null;
 const lanDiscovery = () =>
   (lan ||= startLan({ inst: INSTANCE, onError: (err) => console.warn('CoDev: local network discovery:', err.message) }));
-let hostIdentity = null; // { rootCommit, repo, fp } of the project this app hosts
-let ghPublished = null; // { repo, name } while our room is written in the repository
-let ghTimer = null;
 
 async function identityOf(root) {
   const id = await projectIdentity(root, run);
@@ -971,51 +1094,57 @@ async function identityOf(root) {
 // The sign-in token, or the one from an existing `gh` session: the API is called directly, so `gh` is optional.
 const ghToken = async () => (await githubToken())?.token || null;
 
-async function announceRoom() {
-  if (!hostCtx || !hostedServer) return;
+async function announceRoom(c) {
+  if (!c?.hostCtx || !hostedServer) return;
+  const { hostCtx } = c;
   try {
-    hostIdentity ||= await identityOf(hostCtx.root);
+    c.hostIdentity ||= await identityOf(hostCtx.root);
   } catch {
     return;
   }
-  const { fp, repo } = hostIdentity;
+  if (c.hostCtx !== hostCtx) return; // left the room meanwhile
+  const { fp, repo } = c.hostIdentity;
   if (fp.r || fp.g) {
-    lanDiscovery().announce({ name: hostCtx.name, room: hostCtx.room, port: hostedServer.address().port, r: fp.r, g: fp.g });
+    lanDiscovery().announce({ name: hostCtx.name, room: hostCtx.room, port: hostedServer.address().port, r: fp.r, g: fp.g }, c.id);
   }
-  if (!repo || !tunnel?.url) return;
+  if (!repo || !tunnel?.url || !c.sharing) return;
   const publish = async () => {
-    if (!hostCtx || !tunnel?.url) return;
+    if (c.hostCtx !== hostCtx || !tunnel?.url || !c.sharing) return;
     const token = await ghToken();
     try {
       await publishGithubRoom({ repo, name: hostCtx.name, room: hostCtx.room, url: tunnel.url, token });
-      ghPublished = { repo, name: hostCtx.name };
+      c.ghPublished = { repo, name: hostCtx.name };
     } catch (err) {
       console.warn(`CoDev: could not list the room in ${repo} on GitHub:`, err.message);
       // Tell the host: otherwise teammates on other networks just never see the room.
       const why = token ? `you need write access to ${repo} (${err.message})` : 'sign in with GitHub on the start screen';
-      win?.webContents.send('discovery-warning', `Teammates on other networks will not find this room: ${why}. The invite link still works.`);
+      if (!c.sender.isDestroyed()) c.sender.send('discovery-warning', `Teammates on other networks will not find this room: ${why}. The invite link still works.`);
     }
   };
   await publish();
-  clearInterval(ghTimer);
-  ghTimer = setInterval(publish, 10 * 60 * 1000); // listings older than 30 minutes are ignored
+  clearInterval(c.ghTimer);
+  c.ghTimer = setInterval(publish, 10 * 60 * 1000); // listings older than 30 minutes are ignored
 }
 
-async function unannounceGithub() {
-  clearInterval(ghTimer);
-  ghTimer = null;
-  const p = ghPublished;
-  ghPublished = null;
+async function unannounceGithub(c) {
+  clearInterval(c.ghTimer);
+  c.ghTimer = null;
+  const p = c.ghPublished;
+  c.ghPublished = null;
   if (p) await unpublishGithubRoom({ ...p, token: await ghToken() });
 }
 
 const knockHooks = {
   async ask({ room, member, project }) {
-    if (!hostCtx || room !== hostCtx.room) return false;
-    hostIdentity ||= await identityOf(hostCtx.root).catch(() => null);
+    const c = ctxByRoom(room);
+    if (!c) return false;
+    const { hostCtx } = c;
+    c.hostIdentity ||= await identityOf(hostCtx.root).catch(() => null);
+    const hostIdentity = c.hostIdentity;
     const theirs = { r: typeof project?.r === 'string' ? project.r : null, g: typeof project?.g === 'string' ? project.g : null };
     const same = !!hostIdentity && sameProject(hostIdentity.fp, theirs);
     return askHost(
+      c,
       { member },
       { kind: 'knock', sameProject: same, project: hostIdentity?.repo || path.basename(hostCtx.root) },
       90_000 // under Cloudflare's 100-second limit for an open request
@@ -1097,7 +1226,7 @@ ipcMain.handle('discover', async (_e, { root, repo } = {}) => {
   await Promise.all(
     found.map(async (r) => {
       const k = `${r.name}\n${r.room}`;
-      if (seen.has(k) || (hostCtx && r.name === hostCtx.name && r.room === hostCtx.room)) return;
+      if (seen.has(k) || [...contexts.values()].some((c) => c.hostCtx && r.name === c.hostCtx.name && r.room === c.hostCtx.room)) return;
       seen.add(k); // the local network comes first, so it wins over the same room on GitHub
       try {
         const res = await fetch(`${r.url}/api/info`, { signal: AbortSignal.timeout(3000) });
@@ -1164,6 +1293,7 @@ function parseAppLink(arg) {
 
 function deliverLink(link) {
   if (!link) return;
+  const win = mainWindow();
   if (win && !win.webContents.isLoading()) {
     win.webContents.send('deep-link', link);
     if (win.isMinimized()) win.restore();
@@ -1232,7 +1362,7 @@ async function checkForUpdate() {
     const found = await checkLatest(currentVersion(), { token: await ghToken().catch(() => null) });
     if (!found) return;
     update = found;
-    win?.webContents.send('update-available', {
+    sendAll('update-available', {
       version: found.version,
       current: currentVersion(),
       auto: updateKind() !== 'page',
@@ -1272,12 +1402,12 @@ ipcMain.handle('update-install', async () => {
       kind,
       appImage: process.env.APPIMAGE,
       execPath: process.execPath,
-      onProgress: (p) => win?.webContents.send('update-progress', p),
+      onProgress: (p) => sendAll('update-progress', p),
     });
     if (next.relaunch) relaunch(next.relaunch);
     // Closing the window runs the usual cleanup (terminals, tunnel, room) and then quits.
     // (The pause also lets systemd-run move the new copy into its own scope before we exit.)
-    setTimeout(() => (win && !win.isDestroyed() ? win.close() : app.quit()), 1000);
+    setTimeout(() => (allWindows().length ? allWindows().forEach((w) => w.close()) : app.quit()), 1000);
     return { ok: true };
   } catch (err) {
     updating = false;
@@ -1290,7 +1420,13 @@ ipcMain.handle('open-releases', () => shell.openExternal(update?.url || RELEASES
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', (_e, argv) => deliverLink(argv.map(parseAppLink).find(Boolean)));
+  // Opening CoDev again while it runs: an invite link goes to the open window; otherwise a new
+  // window opens, for another project.
+  app.on('second-instance', (_e, argv) => {
+    const link = argv.map(parseAppLink).find(Boolean);
+    if (link) deliverLink(link);
+    else createWindow();
+  });
   app.on('open-url', (e, url) => {
     e.preventDefault();
     deliverLink(parseAppLink(url));
@@ -1301,9 +1437,9 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
     prepareRuntime();
     registerProtocol();
-    createWindow();
+    const first = createWindow();
     lanDiscovery(); // start listening early: rooms on the network are heard every few seconds
-    win.webContents.once('did-finish-load', () => setTimeout(checkForUpdate, 3000));
+    first.webContents.once('did-finish-load', () => setTimeout(checkForUpdate, 3000));
     setInterval(checkForUpdate, 4 * 60 * 60 * 1000);
     closeDeadAiSessions();
     setInterval(closeDeadAiSessions, 60 * 1000);
@@ -1312,10 +1448,11 @@ if (!app.requestSingleInstanceLock()) {
 app.on('window-all-closed', () => {
   const closing = endAllSessions(); // before the kills, so their exits do not race it
   for (const p of ptys.values()) p.kill();
-  tunnel?.proc.kill();
+  tunnel?.proc?.kill();
   for (const id of [...guests.keys()]) guestHooks.close(id);
   hostedServer?.close();
   lan?.close();
-  // Take the room off the GitHub repository, but never hold the quit for long.
-  Promise.race([Promise.all([unannounceGithub(), closing]), new Promise((r) => setTimeout(r, 8000))]).finally(() => app.quit());
+  // Take the rooms off the GitHub repositories, but never hold the quit for long.
+  const unannounce = [...contexts.values()].map((c) => unannounceGithub(c).catch(() => {}));
+  Promise.race([Promise.all([...unannounce, ...leaving, closing]), new Promise((r) => setTimeout(r, 8000))]).finally(() => app.quit());
 });

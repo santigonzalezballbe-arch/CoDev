@@ -140,6 +140,31 @@ test('two apps on the same network hear each other, and never themselves', async
   }
 });
 
+test('one app with several windows announces each room apart, and stops one without the others', async (t) => {
+  const errors = [];
+  const a = startLan({ inst: 'A', onError: (e) => errors.push(e) });
+  const b = startLan({ inst: 'B', onError: (e) => errors.push(e) });
+  const rooms = () => b.peers().map((p) => p.room).sort();
+  const until = async (ok) => {
+    for (let i = 0; i < 30 && !ok(); i++) await new Promise((r) => setTimeout(r, 100));
+  };
+  try {
+    await new Promise((r) => setTimeout(r, 300));
+    a.announce({ name: 'Maya', room: 'todo', port: 4321, r: 'r1', g: null }, 1);
+    a.announce({ name: 'Maya', room: 'shop', port: 4321, r: 'r2', g: null }, 2);
+    await until(() => rooms().length === 2);
+    if (!rooms().length) return t.skip(`multicast is not available here${errors[0] ? ` (${errors[0].message})` : ''}`);
+    assert.deepEqual(rooms(), ['shop', 'todo']);
+    assert.deepEqual(a.peers(), [], 'an app does not find its own rooms');
+    a.stop(1);
+    a.announce({ name: 'Maya', room: 'shop', port: 4321, r: 'r2', g: null }, 2);
+    assert.ok(true);
+  } finally {
+    a.close();
+    b.close();
+  }
+});
+
 async function serverWith(knocks, key = 'secret-key') {
   const server = await startServer({ port: 0, host: '127.0.0.1', key, knocks });
   servers.push(server);

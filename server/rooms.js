@@ -119,7 +119,7 @@ export class Room {
 
   setIntent(name, text) {
     const m = this.member(name);
-    m.intent = text.length > 500 ? text.slice(0, 500) + '…' : text;
+    m.intent = text; // whole: the header cuts it visually, the history and chat show it all
     m.status = 'working';
     this.broadcast('member', m);
     this.addEvent(name, { kind: 'prompt', summary: text });

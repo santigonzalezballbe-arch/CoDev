@@ -390,3 +390,8 @@ Pendent: provar amb claus reals de Gemini/Grok; provar dues finestres amb sales 
 Petició: més IA per API (Gemini, Grok…).
 Canvis: `desktop/agents.js` defineix 7 agents de tipus API (`route`, `keyEnv`, `keyUrl`, models suggerits). `harnessPatch` genera la ruta de `dsh-llm-pi-ai` amb `apiKeyEnv`, i `apiModels()` llegeix els models del catàleg pi-ai instal·lat. Així s'afegeixen proveïdors sense codi nou al Harness.
 Pendent: el mateix de l'entrada anterior (claus reals, release).
+
+## 2026-11-23 23:30 — release 0.4.20
+Petició: publicar els missatges sense límit, les finestres per projecte i les IA noves per API.
+Canvis: `package.json` i `package-lock.json` a 0.4.20; commit i etiqueta `v0.4.20` pujats perquè GitHub Actions compili els instal·ladors.
+Pendent: comprovar la release; provar Gemini/Grok amb claus reals.

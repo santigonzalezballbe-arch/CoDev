@@ -147,7 +147,7 @@ function formatEntry(e) {
   const to = e.kind === 'note' ? ` to ${e.to || 'everyone'}` : '';
   const text = String(e.summary || '').replace(/\s+/g, ' ');
   const files = e.files?.length && e.kind !== 'edit' ? ` [${e.files.join(', ')}]` : '';
-  return `- ${when} · ${who} ${WORD[e.kind] || e.kind}${to}: ${text.length > 700 ? text.slice(0, 700) + '…' : text}${files}`;
+  return `- ${when} · ${who} ${WORD[e.kind] || e.kind}${to}: ${text}${files}`;
 }
 
 export function runMcp() {

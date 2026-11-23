@@ -12,8 +12,8 @@ import { describeTool } from './harness-tools.js';
 
 const cfg = findConfig();
 const env = process.env;
-const agent = env.CODEV_HARNESS_AGENT === 'local' ? 'local' : 'deepseek';
-const label = agent === 'local' ? 'Local' : 'DeepSeek';
+const agent = env.CODEV_HARNESS_AGENT || 'deepseek';
+const label = env.CODEV_HARNESS_LABEL || (agent === 'local' ? 'Local' : 'DeepSeek');
 const model = env.CODEV_HARNESS_MODEL || '';
 const dsh = env.CODEV_DSH || '';
 const patch = env.CODEV_HARNESS_PATCH || '';
@@ -25,7 +25,6 @@ const BOLD = '\x1b[1m';
 const RED = '\x1b[31m';
 const dim = (s) => `${DIM}${s}${RESET}`;
 
-const clip = (s, n) => (s && s.length > n ? s.slice(0, n) + '…' : s || '');
 const say = (s = '') => process.stdout.write(`${s}\n`);
 
 if (!cfg) {
@@ -147,7 +146,7 @@ async function runTurn(text) {
   busy = true;
   let reply = '';
   let failed = false;
-  await publish('intent', { text: clip(text.trim(), 8000) });
+  await publish('intent', { text: text.trim() });
   // Same as the Claude Code hook: give the AI the team's state before every prompt.
   let withTeam = text;
   try {
@@ -180,7 +179,7 @@ async function runTurn(text) {
   }
 
   if (!failed) await prompt.catch(() => {});
-  if (reply.trim()) await publish('activity', { kind: 'reply', tool: 'harness', summary: clip(reply.trim(), 8000) });
+  if (reply.trim()) await publish('activity', { kind: 'reply', tool: 'harness', summary: reply.trim() });
   await publish('status', { status: 'idle', summary: 'Finished its turn' });
   busy = false;
   cancelCurrent = null;

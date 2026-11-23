@@ -31,8 +31,8 @@
 
         <div id="ai-credentials" class="app-only ai-credentials">
           <div class="field" id="ai-key-field" hidden>
-            <span class="label">DeepSeek API key</span>
-            <input id="agent-key" type="password" placeholder="sk-..." spellcheck="false" autocomplete="off" aria-label="DeepSeek API key" />
+            <span class="label" id="ai-key-label">API key</span>
+            <input id="agent-key" type="password" placeholder="sk-..." spellcheck="false" autocomplete="off" aria-label="API key" />
             <p class="hint" id="ai-key-hint"></p>
           </div>
 
@@ -148,10 +148,11 @@
         <button id="history-btn" class="tool-btn">History</button>
         <button id="share" class="tool-btn" hidden></button>
         <button id="sound-btn" class="tool-btn app-only">Sound on</button>
+        <button id="new-window" class="tool-btn app-only" title="Work on another project at the same time, in a new window (Ctrl+Shift+N)">+ Project</button>
         <a id="get-app" class="tool-btn web-only" href="https://github.com/santigonzalezballbe-arch/CoDev#desktop-app-recommended" target="_blank">Get the app</a>
         <span class="bar-gap"></span>
         <button id="chat-btn" class="tool-btn chat-btn">Chat</button>
-        <button id="add-claude" class="bar-btn" title="Open another AI of your own: Claude, DeepSeek, a local model or ChatGPT">+ Another AI</button>
+        <button id="add-claude" class="bar-btn" title="Open another AI of your own: Claude, DeepSeek, Gemini, Grok, a local model, ChatGPT…">+ Another AI</button>
       </div>
     </header>
     <div id="alert" class="alert" hidden></div>
@@ -168,8 +169,8 @@
           <div id="nc-ai" class="nc-chips" role="radiogroup" aria-label="AI"></div>
         </div>
         <div class="nc-field app-only" id="nc-key" hidden>
-          <span class="nc-label">DeepSeek key</span>
-          <input id="nc-key-input" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" aria-label="DeepSeek API key" />
+          <span class="nc-label" id="nc-key-label">API key</span>
+          <input id="nc-key-input" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" aria-label="API key" />
         </div>
         <div class="nc-field app-only" id="nc-model" hidden>
           <span class="nc-label">Model</span>

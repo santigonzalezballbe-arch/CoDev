@@ -82,19 +82,19 @@ export function describeTool(cfg, input) {
     case 'NotebookEdit':
       return { kind: 'edit', summary: `Edited notebook ${rel(ti.notebook_path)}`, files: [rel(ti.notebook_path)] };
     case 'Bash':
-      return { kind: 'command', summary: ti.description ? `${ti.description}: $ ${clip(ti.command, 200)}` : `$ ${clip(ti.command, 240)}` };
+      return { kind: 'command', summary: ti.description ? `${ti.description}: $ ${ti.command}` : `$ ${ti.command}` };
     case 'Read':
       return { kind: 'read', summary: `Read ${rel(ti.file_path)}`, files: [rel(ti.file_path)] };
     case 'Grep':
-      return { kind: 'read', summary: `Searched for "${clip(ti.pattern, 80)}"${ti.path ? ` in ${rel(ti.path)}` : ''}` };
+      return { kind: 'read', summary: `Searched for "${ti.pattern}"${ti.path ? ` in ${rel(ti.path)}` : ''}` };
     case 'Glob':
-      return { kind: 'read', summary: `Looked for files ${clip(ti.pattern, 80)}` };
+      return { kind: 'read', summary: `Looked for files ${ti.pattern}` };
     case 'WebFetch':
     case 'WebSearch':
-      return { kind: 'web', summary: `Looked up ${clip(ti.url || ti.query, 120)}` };
+      return { kind: 'web', summary: `Looked up ${ti.url || ti.query}` };
     case 'Task':
     case 'Agent':
-      return { kind: 'agent', summary: `Started a subagent: ${clip(ti.description || ti.prompt, 120)}` };
+      return { kind: 'agent', summary: `Started a subagent: ${ti.description || ti.prompt}` };
     case 'TodoWrite': {
       const todos = ti.todos || [];
       const current = todos.find((t) => t.status === 'in_progress');
@@ -106,10 +106,10 @@ export function describeTool(cfg, input) {
       const patch = patchOf(input);
       if (patch) {
         const files = patchFiles(patch).map(rel);
-        return { kind: 'edit', summary: `Edited ${files.join(', ') || 'files'}`, files, diff: { old: '', new: clip(patch, 4000) } };
+        return { kind: 'edit', summary: `Edited ${files.join(', ') || 'files'}`, files, diff: { old: '', new: patch } };
       }
       const cmd = Array.isArray(ti.command) ? ti.command.join(' ') : typeof ti.command === 'string' ? ti.command : null;
-      if (cmd) return { kind: 'command', summary: `$ ${clip(cmd.replace(/^(bash|sh) -l?c /, ''), 240)}` };
+      if (cmd) return { kind: 'command', summary: `$ ${cmd.replace(/^(bash|sh) -l?c /, '')}` };
       return { kind: 'tool', summary: `Used ${tool}` };
     }
   }
@@ -199,7 +199,7 @@ async function sendReplies(cfg, input) {
   const seen = new Set(sent);
   const fresh = replyEntriesSinceLastPrompt(input.transcript_path).filter((r) => !seen.has(r.id));
   for (const r of fresh) {
-    await api(cfg, 'activity', { kind: 'reply', tool: 'claude', summary: clip(r.text, 8000) });
+    await api(cfg, 'activity', { kind: 'reply', tool: 'claude', summary: r.text });
     sent.push(r.id);
   }
   if (fresh.length) {
@@ -250,7 +250,7 @@ export async function runHook() {
         let team = null;
         try {
           if (input.hook_event_name === 'UserPromptSubmit' && input.prompt) {
-            await api(cfg, 'intent', { text: clip(input.prompt.trim(), 8000) });
+            await api(cfg, 'intent', { text: input.prompt.trim() });
           } else {
             await api(cfg, 'status', { status: 'idle', summary: 'Opened a session' });
           }
@@ -303,7 +303,7 @@ export async function runHook() {
 
       case 'Notification':
         // Claude is waiting for the person: a permission to answer, a question, an idle prompt.
-        if (input.message) await api(cfg, 'activity', { kind: 'attention', tool: 'claude', summary: clip(String(input.message), 300) });
+        if (input.message) await api(cfg, 'activity', { kind: 'attention', tool: 'claude', summary: String(input.message) });
         return;
 
       case 'Stop': {
@@ -316,7 +316,7 @@ export async function runHook() {
             // Agents whose transcript we cannot read (Codex) may pass their last reply directly.
             const turn = readTurn(cfg, input);
             if (!turn.lastSent || turn.lastSent !== input.last_assistant_message) {
-              await api(cfg, 'activity', { kind: 'reply', tool: 'ai', summary: clip(input.last_assistant_message.trim(), 8000) });
+              await api(cfg, 'activity', { kind: 'reply', tool: 'ai', summary: input.last_assistant_message.trim() });
               writeTurn(cfg, input, { ...turn, lastSent: input.last_assistant_message });
             }
           }

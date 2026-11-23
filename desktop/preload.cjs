@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('codev', {
   historyRead: () => ipcRenderer.invoke('history-read'),
   historyReveal: () => ipcRenderer.invoke('history-reveal'),
   leaveRoom: () => ipcRenderer.invoke('leave-room'),
+  newWindow: () => ipcRenderer.invoke('new-window'),
   setHostContext: (ctx) => ipcRenderer.invoke('host-context', ctx),
   onGuestRequest: (cb) => ipcRenderer.on('guest-request', (_e, req) => cb(req)),
   onGuestRequestExpired: (cb) => ipcRenderer.on('guest-request-expired', (_e, reqId) => cb(reqId)),

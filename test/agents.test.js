@@ -4,14 +4,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSpec, harnessPatch, AGENTS, AGENT_IDS, agentLabel } from '../desktop/agents.js';
+import { spawnSpec, harnessPatch, apiModels, AGENTS, AGENT_IDS, agentLabel } from '../desktop/agents.js';
 import { installCodexHooks } from '../cli/init.js';
 
 const codev = { CODEV_SERVER: 'http://localhost:4321', CODEV_ROOM: 'r', CODEV_NAME: 'Ana · gpt', CODEV_KEY: 'k"ey' };
 const runner = { exe: '/opt/CoDev/codev', cli: '/data/runtime/cli/codev.js', env: { ELECTRON_RUN_AS_NODE: '1' } };
 
 test('every AI has a name for the header and a place in the picker', () => {
-  assert.deepEqual(AGENT_IDS, ['claude', 'deepseek', 'local', 'chatgpt']);
+  assert.deepEqual(AGENT_IDS, ['claude', 'deepseek', 'local', 'chatgpt', 'gemini', 'grok', 'openrouter', 'openai-api', 'mistral', 'kimi', 'groq']);
   assert.equal(agentLabel('deepseek'), 'DeepSeek');
   assert.equal(agentLabel('chatgpt'), 'ChatGPT');
   assert.equal(agentLabel('nonsense'), 'Claude', 'an unknown AI falls back to the robot everybody knows');
@@ -88,4 +88,39 @@ test('the Codex hooks go to .codex/hooks.json without touching other hooks', () 
   assert.ok(settings.hooks.PreToolUse.some((g) => g.matcher === 'Bash' && g.hooks[0].command === 'my-own-hook'), "the user's own hooks stay");
   assert.match(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), /\.codex\/hooks\.json/);
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('Gemini, Grok and the other APIs run in the Harness through their pi-ai route, with their own key', () => {
+  for (const id of ['gemini', 'grok', 'openrouter', 'openai-api', 'mistral', 'kimi', 'groq']) {
+    const a = AGENTS[id];
+    assert.equal(a.engine, 'harness', id);
+    assert.ok(a.needsKey && a.keyEnv && a.keyUrl && a.route, id);
+  }
+  const { patch, model, provider } = harnessPatch('grok', { model: 'grok-4.6', rules: '[CoDev] rules' });
+  assert.equal(provider, 'xai');
+  assert.equal(model, 'grok-4.6', 'any model of the catalog, even one not in our list');
+  assert.match(patch, /name: '@deepseek-ai\/dsh-llm-pi-ai'/);
+  assert.match(patch, /xai:\n\s+apiKeyEnv: "XAI_API_KEY"/);
+  assert.match(patch, /provider: "xai"/);
+  assert.ok(!/AIza|xai-/.test(patch), 'no key is ever written in the patch');
+  assert.equal(harnessPatch('gemini', {}).model, AGENTS.gemini.defaultModel);
+});
+
+test('the models of an API come from the installed catalog, our suggestions first', () => {
+  const catalog = {
+    'google-generative-ai': {
+      'chat:gemini-2.5-pro': { id: 'gemini-2.5-pro' },
+      'chat:gemini-pro-latest': { id: 'gemini-pro-latest' },
+      'chat:deep-research-preview-04-2026': { id: 'deep-research-preview-04-2026' },
+      'image:imagen-5': { id: 'imagen-5' },
+      'chat:gemini-9-ultra': { id: 'gemini-9-ultra' },
+    },
+  };
+  const list = apiModels('gemini', (route) => (route === 'google' ? catalog : null));
+  assert.equal(list[0], 'gemini-pro-latest');
+  assert.ok(list.includes('gemini-9-ultra'), 'newer models of the catalog show up');
+  assert.ok(!list.includes('deep-research-preview-04-2026') && !list.includes('imagen-5'));
+  assert.ok(!list.includes('gemini-flash-latest'), 'a suggestion the catalog lacks is left out');
+  assert.deepEqual(apiModels('gemini', () => null), AGENTS.gemini.models, 'no catalog: our list');
+  assert.deepEqual(apiModels('claude', () => catalog), []);
 });

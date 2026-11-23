@@ -36,7 +36,7 @@ function readBody(req) {
     const chunks = [];
     req.on('data', (c) => {
       size += c.length;
-      if (size > 1_000_000) {
+      if (size > 50_000_000) {
         reject(new Error('Body too large'));
         req.destroy();
       } else chunks.push(c);
@@ -129,14 +129,14 @@ async function handleApi(req, res, roomId, action) {
 
   switch (action) {
     case 'intent': {
-      // The whole prompt goes to the history; the header shows its start.
-      room.setIntent(name, clip(String(body.text || ''), 8000));
+      // The whole prompt, never cut: the history and the chat show it all.
+      room.setIntent(name, String(body.text || ''));
       return sendJson(res, 200, { ok: true });
     }
     case 'status': {
       const status = ['working', 'idle', 'offline'].includes(body.status) ? body.status : 'idle';
       room.setStatus(name, status);
-      if (body.summary) room.addEvent(name, { kind: 'status', summary: clip(String(body.summary), 200) });
+      if (body.summary) room.addEvent(name, { kind: 'status', summary: String(body.summary) });
       return sendJson(res, 200, { ok: true });
     }
     case 'claim': {
@@ -153,11 +153,11 @@ async function handleApi(req, res, roomId, action) {
       const ev = room.addEvent(name, {
         kind: clip(String(body.kind || 'tool'), 30),
         tool: clip(body.tool, 60),
-        // Claude's replies are kept whole for the chat view; other activity is one line.
-        summary: clip(String(body.summary || ''), body.kind === 'reply' ? 8000 : 400),
+        // Kept whole (replies, commands…): nothing in the chat or the history is ever cut.
+        summary: String(body.summary || ''),
         files,
         diff: body.diff
-          ? { old: clip(body.diff.old, 4000) || '', new: clip(body.diff.new, 4000) || '' }
+          ? { old: typeof body.diff.old === 'string' ? body.diff.old : '', new: typeof body.diff.new === 'string' ? body.diff.new : '' }
           : undefined,
       });
       // Changes seen by "codev watch": warn if they touch someone else's files.
@@ -188,7 +188,7 @@ async function handleApi(req, res, roomId, action) {
         kind: 'note',
         to: body.to ? clip(String(body.to), 40) : null,
         from: body.from === 'ai' ? 'ai' : 'human',
-        summary: clip(String(body.text || ''), 1000),
+        summary: String(body.text || ''),
       });
       return sendJson(res, 200, { ok: true });
     }

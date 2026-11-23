@@ -262,7 +262,9 @@ const hasKey = (agent) => !!AI_STATE.info?.hasKey?.[agent];
 const modelOptions = (agent) => {
   const a = AGENTS[agent] || AGENTS.claude;
   if (a.ollama) return AI_STATE.info?.ollama ?? null; // null: Ollama did not answer
-  return (a.models || []).map((name) => ({ name }));
+  // API providers: the models in the installed Harness's catalog, else our suggestions.
+  const fromCatalog = a.api ? AI_STATE.info?.models?.[agent] : null;
+  return (fromCatalog?.length ? fromCatalog : a.models || []).map((name) => ({ name }));
 };
 
 /** Fills a model <select> for an agent and returns the model that ends up chosen. */
@@ -413,17 +415,19 @@ function renderStartAI() {
 
   $('#ai-key-field').hidden = !a.needsKey || AI_STATE.info?.secureStorage === false;
   if (a.needsKey) {
+    $('#ai-key-label').textContent = `${a.label} API key`;
+    $('#agent-key').placeholder = a.keyHint || '';
     const hint = $('#ai-key-hint');
     if (hasKey(a.id)) {
       hint.replaceChildren('A key is saved, encrypted with your system keychain. Leave this empty to use it.');
     } else {
       hint.replaceChildren('Saved encrypted with your system keychain; CoDev never shows it again. Get one at ');
-      hint.append(h('a', { href: a.keyUrl, target: '_blank', rel: 'noreferrer' }, 'platform.deepseek.com'), '.');
+      hint.append(h('a', { href: a.keyUrl, target: '_blank', rel: 'noreferrer' }, a.keySite || a.keyUrl), '.');
     }
   }
 
   const models = modelOptions(a.id);
-  const showModel = !!a.ollama || (a.models && a.models.length);
+  const showModel = !!a.ollama || !!models?.length;
   $('#ai-model-field').hidden = !showModel;
   if (showModel) {
     $('#ai-model-label').textContent = a.ollama ? 'Local model' : 'Model';
@@ -434,7 +438,9 @@ function renderStartAI() {
         : models.length
           ? `${models.length} models installed in Ollama.`
           : 'No models installed. Pull one with ollama pull qwen2.5-coder:7b.'
-      : 'deepseek-flash is the fast one and has a 1M context; deepseek-v4-pro is stronger and costs more.';
+      : a.api
+        ? `${models.length} ${a.label} models. The first ones are a good start; "latest" names follow the newest version.`
+        : 'deepseek-flash is the fast one and has a 1M context; deepseek-v4-pro is stronger and costs more.';
   } else {
     ui.model = '';
   }
@@ -880,12 +886,12 @@ form.addEventListener('submit', async (e) => {
   if (!v.room) return showError('Give the room a name.');
   if (v.mode === 'join' && !/^https?:\/\//.test(v.server)) return showError('Paste the invite your teammate sent you.');
 
-  // The AI needs its key (DeepSeek) or its model (local Ollama) before the first terminal can start.
+  // The AI needs its key (DeepSeek, Gemini, Grok…) or its model (local Ollama) before the first terminal can start.
   const agent = AGENTS[v.agent] || AGENTS.claude;
   if (agent.needsKey || agent.ollama) await loadAgents();
   if (agent.needsKey) {
     if (AI_STATE.info?.secureStorage === false && !hasKey(agent.id)) {
-      return showError('This system has no keychain, so CoDev cannot save the DeepSeek key encrypted. Start CoDev with CODEV_PASSWORD_STORE=gnome-libsecret (or kwallet6) and try again.');
+      return showError(`This system has no keychain, so CoDev cannot save the ${agent.label} key encrypted. Start CoDev with CODEV_PASSWORD_STORE=gnome-libsecret (or kwallet6) and try again.`);
     }
     const typed = $('#agent-key').value.trim();
     try {
@@ -901,6 +907,9 @@ form.addEventListener('submit', async (e) => {
     }
   } else if (agent.ollama && !v.model) {
     return showError('Choose a local Ollama model.');
+  }
+  if (agent.api && !v.model) {
+    return showError(`Choose a ${agent.label} model.`);
   }
   store.set('codev:start', v);
 
@@ -981,7 +990,9 @@ function openWorkspace() {
   $('#start-form').hidden = true;
   $('#app').hidden = false;
   $('#room-name').textContent = S.cfg.room;
-  document.title = `${S.cfg.room} · CoDev`;
+  // Several windows (one per project) are told apart in the taskbar by the project's folder.
+  const project = String(S.cfg.root || '').split(/[\\/]/).filter(Boolean).pop();
+  document.title = project && project.toLowerCase() !== S.cfg.room.toLowerCase() ? `${S.cfg.room} · ${project} · CoDev` : `${S.cfg.room} · CoDev`;
 
   $('#leave').addEventListener('click', leaveRoom);
   $('#invite').addEventListener('click', () => {
@@ -1382,6 +1393,8 @@ function pingChatButton() {
 
 function setupChat() {
   $('#chat-btn').addEventListener('click', () => ($('#chat').hidden ? openChat() : closeChat()));
+  // Another project at the same time: a new window with its own room (this one stays as it is).
+  $('#new-window')?.addEventListener('click', () => api.newWindow?.());
   updateSoundBtn();
   $('#sound-btn')?.addEventListener('click', () => {
     doneSound = !doneSound;
@@ -1787,6 +1800,7 @@ function setupNewAI() {
       return ncError(String(ex.message || ex).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
     }
     if (a.ollama && !nc.model) return ncError('Choose a local model.');
+    if (a.api && !nc.model) return ncError(`Choose a ${a.label} model.`);
     box.hidden = true;
     addLocal(label, { agent: a.id, model: nc.model });
   });
@@ -1797,8 +1811,11 @@ function renderNewAI() {
   const a = AGENTS[nc.agent] || AGENTS.claude;
   for (const b of $('#nc-ai').children) b.setAttribute('aria-checked', String(b.dataset.ai === a.id));
   $('#nc-key').hidden = !a.needsKey || AI_STATE.info?.secureStorage === false;
-  if (a.needsKey) $('#nc-key-input').placeholder = hasKey(a.id) ? 'A key is saved: leave it empty to keep it' : 'sk-...';
-  const showModel = !!a.ollama || (a.models && a.models.length);
+  if (a.needsKey) {
+    $('#nc-key-label').textContent = `${a.label} key`;
+    $('#nc-key-input').placeholder = hasKey(a.id) ? 'A key is saved: leave it empty to keep it' : a.keyHint || '';
+  }
+  const showModel = !!a.ollama || !!modelOptions(a.id)?.length;
   $('#nc-model').hidden = !showModel;
   if (showModel) nc.model = fillModelSelect($('#nc-model-select'), a.id, nc.model) || '';
   else nc.model = '';

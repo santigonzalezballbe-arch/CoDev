@@ -84,7 +84,9 @@ export function decodeAnnouncement(buf) {
  */
 export function startLan({ inst, onError = () => {} } = {}) {
   const peers = new Map(); // inst -> { ...announcement, address, seen }
-  let announcing = null;
+  // One announcement per room this app hosts (one per window): slot -> info. Each goes out with its
+  // own id ("<inst>.<slot>"), so listeners keep them apart.
+  const announcing = new Map();
   let timer = null;
   let socket;
   try {
@@ -96,7 +98,7 @@ export function startLan({ inst, onError = () => {} } = {}) {
   socket.on('error', onError);
   socket.on('message', (buf, rinfo) => {
     const a = decodeAnnouncement(buf);
-    if (!a || a.inst === inst) return;
+    if (!a || a.inst === inst || a.inst.startsWith(`${inst}.`)) return; // our own rooms
     peers.set(a.inst, { ...a, address: rinfo.address, seen: Date.now() });
   });
   socket.bind(LAN_PORT, () => {
@@ -108,21 +110,24 @@ export function startLan({ inst, onError = () => {} } = {}) {
     }
   });
   const send = () => {
-    if (!announcing) return;
-    const msg = encodeAnnouncement({ inst, ...announcing });
-    socket.send(msg, 0, msg.length, LAN_PORT, LAN_GROUP, () => {});
+    for (const [slot, info] of announcing) {
+      const msg = encodeAnnouncement({ inst: slot === '' ? inst : `${inst}.${slot}`, ...info });
+      socket.send(msg, 0, msg.length, LAN_PORT, LAN_GROUP, () => {});
+    }
   };
   return {
-    /** Starts (or updates) announcing { name, room, port, r, g }. */
-    announce(info) {
-      announcing = info;
+    /** Starts (or updates) announcing { name, room, port, r, g }; `slot` tells apart the rooms of one app. */
+    announce(info, slot = '') {
+      announcing.set(String(slot), info);
       send();
       clearInterval(timer);
       timer = setInterval(send, LAN_EVERY_MS);
     },
-    stop() {
-      announcing = null;
-      clearInterval(timer);
+    /** Stops announcing one room (`slot`), or all of them. */
+    stop(slot) {
+      if (slot === undefined) announcing.clear();
+      else announcing.delete(String(slot));
+      if (!announcing.size) clearInterval(timer);
     },
     /** Rooms heard recently: [{ name, room, url, r, g }]. */
     peers() {
