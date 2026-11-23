@@ -323,3 +323,6 @@ Pendent: comprovar que la release té tots els instal·ladors.
 
 ## 2026-11-23 19:12 — Santi closed the session
 <!-- codev:close ts=1795457577641 -->
+
+## 2026-11-23 19:13 — Santi closed the session
+<!-- codev:close ts=1795457580300 -->
