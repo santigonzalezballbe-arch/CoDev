@@ -431,3 +431,12 @@ Pendent: revisió del Santi; sense commit.
 
 ## 2026-11-24 00:07 — Santi closed the session
 <!-- codev:close ts=1795475230909 -->
+
+## 2026-11-24 01:00 — edit "L'orquestra" (idea A), horitzontal 1080p60
+Petició: el MusicEdit vertical era borrós i repetitiu; el Santi tria la idea A ("l'orquestra": CoDev com a director, les IA com a músics), en horitzontal i amb molta qualitat.
+Canvis (fora del repo, a `~/CoDev/codev-promo-video/`): `scripts/stage.mjs` admet `LAYOUT=landscape` i `TS` (gravació de l'app real a 3840×2160 a `recL/`). `src/orchestra/kit.tsx`: robots pixelats de l'app (mateixos dibuixos que `desktop/renderer.js`), capçaleres, terminals, diffs, xat i cadenats amb l'estil i les fonts de l'app, en vectorial (sempre nítids). `src/orchestra/Orchestra.tsx`: composició CoDevOrquesta (1920×1080, 60 fps, 62 s) amb els talls i títols de l'edit original. Renders: `out/CoDev-orquesta-CON-AUDIO.mp4` i `out/CoDev-orquesta-SIN-AUDIO.mp4`.
+Nota: l'àudio que va arribar per WhatsApp és AAC a 61 kbps; per qualitat, millor posar el so des de TikTok sobre la versió sense àudio.
+Pendent: revisió del Santi; sense commit.
+
+## 2026-11-24 00:58 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795478288374 room="CoDev" name="Santi" -->
