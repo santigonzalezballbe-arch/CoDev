@@ -118,3 +118,18 @@ Canvis:
 Proves: `npm test` 49/49; publicar, llistar i esborrar una sala real a DiOrg sense `gh` al PATH.
 Publicat com a v0.4.9.
 Pendent: tornar a provar entre dues xarxes amb la 0.4.9 als dos ordinadors (l'amfitrió ha de prémer "Share online").
+
+## 2026-11-23 — tornar a l'inici des d'una sala
+Petició: poder tenir diversos projectes oberts, o almenys tornar a la pantalla d'inici (abans no es podia sortir d'una sala).
+Canvis:
+- `desktop/index.html`: botó "Leave" a la barra superior.
+- `desktop/renderer.js`: `leaveRoom()` demana confirmació si una IA teva treballa (o si ets l'amfitrió), tanca el WebSocket, crida `leave-room` i recarrega la pàgina; la pantalla d'inici es torna a omplir amb els darrers valors.
+- `desktop/main.js`: IPC `leave-room` que tanca les terminals, les dels convidats, l'enllaç en línia, l'anunci a la xarxa i a GitHub, el context d'amfitrió, l'historial i el bloqueig de pantalla. El servidor incrustat continua viu i es reutilitza.
+- `desktop/preload.cjs`: `leaveRoom`.
+Proves: `npm test` OK; a l'app des del codi (Electron + Playwright): crear sala → Leave → inici amb els camps plens → tornar a entrar.
+Pendent: diversos projectes alhora (finestres) demana separar per finestra l'estat del procés principal (historial, amfitrió, convidats, anuncis). Sense commit.
+
+## 2026-11-23 — release 0.4.10
+Petició: publicar la release amb el botó "Leave".
+Canvis: `package.json` i `package-lock.json` a 0.4.10; commit i etiqueta `v0.4.10` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
+Pendent: comprovar que la release té els instal·ladors.

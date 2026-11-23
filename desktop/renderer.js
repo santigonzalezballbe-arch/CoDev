@@ -877,6 +877,7 @@ function openWorkspace() {
   $('#room-name').textContent = S.cfg.room;
   document.title = `${S.cfg.room} · CoDev`;
 
+  $('#leave').addEventListener('click', leaveRoom);
   $('#invite').addEventListener('click', () => {
     const base = S.cfg.publicUrl || S.cfg.lan[0] || S.cfg.server;
     const link = `${base}/?${new URLSearchParams({ room: S.cfg.room, ...(S.cfg.key && { key: S.cfg.key }) })}`;
@@ -908,6 +909,25 @@ function openWorkspace() {
   if (!WEB) first.then(() => addLocal('', { agent: S.cfg.agent, model: S.cfg.model }));
   if (WEB) $('#add-claude').textContent = 'Open my Claude Code';
   if (S.cfg.host) api.setHostContext({ root: S.cfg.root, room: S.cfg.room, name: S.cfg.name });
+}
+
+/** Back to the start screen: closes this room's terminals and connections, then starts the page afresh. */
+async function leaveRoom() {
+  const working = [...S.panes.values()].some((p) => ownsPane(p) && p.state === 'working');
+  const ask = working
+    ? 'An AI of yours is still working. Leave the room anyway? Its terminal will be closed.'
+    : S.cfg.host
+      ? 'Leave the room? Your terminals close and teammates in your room lose their AI terminals on this computer.'
+      : null;
+  if (ask && !window.confirm(ask)) return;
+  const btn = $('#leave');
+  btn.disabled = true;
+  btn.textContent = 'Leaving…';
+  try {
+    S.ws?.close();
+  } catch {}
+  if (!WEB) await api.leaveRoom().catch(() => {});
+  location.reload(); // the start screen fills itself in again from the last values
 }
 
 function post(action, body) {

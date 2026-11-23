@@ -850,6 +850,33 @@ const guestHooks = {
   },
 };
 
+/* ---------- Leaving the room: back to the start screen ---------- */
+// Everything tied to the room stops (terminals, guests, the online link, the announcements); the
+// embedded server keeps running, so creating a room again reuses it.
+ipcMain.handle('leave-room', async () => {
+  for (const p of ptys.values()) {
+    try {
+      p.kill();
+    } catch {}
+  }
+  ptys.clear();
+  for (const id of [...guests.keys()]) guestHooks.close(id);
+  for (const resolve of guestAsks.values()) resolve(false);
+  guestAsks.clear();
+  tunnel?.proc.kill();
+  tunnel = null;
+  lan?.stop();
+  hostCtx = null;
+  hostIdentity = null;
+  history = null;
+  if (awakeId !== null) {
+    powerSaveBlocker.stop(awakeId);
+    awakeId = null;
+  }
+  await Promise.race([unannounceGithub().catch(() => {}), new Promise((r) => setTimeout(r, 4000))]);
+  return true;
+});
+
 /* ---------- Teammates on the same project: find their rooms, knock, let them in ---------- */
 // See discovery.js. Rooms are announced on the local network while hosted, and in the GitHub
 // repository while shared online. Finding a room gives no access: the visitor knocks, the host decides.
