@@ -201,3 +201,6 @@ Pendent: comprovar que la release té els instal·ladors; l'app instal·lada s'a
 
 ## 2026-11-23 15:49 — Santi closed the session
 <!-- codev:close ts=1795445372169 -->
+
+## 2026-11-23 16:01 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795446109381 room="CoDev" name="Santi" -->
