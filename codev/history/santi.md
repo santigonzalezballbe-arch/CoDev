@@ -253,3 +253,6 @@ Pendent: reiniciar CoDev; el Foix ha d'actualitzar (a Windows) perquè les seves
 
 ## 2026-11-23 16:49 — Santi closed the session
 <!-- codev:close ts=1795448951315 -->
+
+## 2026-11-23 16:49 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795448980284 room="CoDev" name="Santi" -->
