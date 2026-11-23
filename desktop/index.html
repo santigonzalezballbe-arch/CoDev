@@ -124,25 +124,35 @@
 
   <!-- Workspace -->
   <div id="app" class="app" hidden>
+    <!-- Two tiers: a thin black strip with the context (room, who is here, connection),
+         and a white tool bar with the actions only. -->
     <header class="topbar">
-      <span class="wordmark">CoDev</span>
-      <div class="room">
-        <span class="room-word">Room</span>
-        <strong id="room-name"></strong>
+      <div class="context">
+        <span class="wordmark">CoDev</span>
+        <div class="room">
+          <span class="room-word">Room /</span>
+          <strong id="room-name"></strong>
+        </div>
+        <span class="bar-gap"></span>
+        <div id="presence" class="presence" aria-label="Who is in the room"></div>
+        <span id="conn" class="conn">Offline</span>
+        <button id="leave" class="leave" title="Close this room and go back to the start screen to open another project">Leave</button>
       </div>
-      <button id="leave" class="bar-btn quiet" title="Close this room and go back to the start screen to open another project">Leave</button>
-      <button id="invite" class="bar-btn quiet">Invite</button>
-      <button id="history-btn" class="bar-btn quiet">History</button>
-      <button id="share" class="bar-btn quiet" hidden></button>
-      <button id="add-claude" class="bar-btn" title="Open another AI of your own: Claude, DeepSeek, a local model or ChatGPT">Another AI</button>
-      <a id="get-app" class="bar-btn quiet web-only" href="https://github.com/santigonzalezballbe-arch/CoDev#desktop-app-recommended" target="_blank">Get the app</a>
-      <div id="view-switch" class="view-switch" role="radiogroup" aria-label="View">
-        <button type="button" data-view="terminal" role="radio">Terminal</button>
-        <button type="button" data-view="convo" role="radio">Conversation</button>
+      <div class="tools">
+        <div id="view-switch" class="view-switch" role="radiogroup" aria-label="View">
+          <button type="button" data-view="terminal" role="radio">Terminal</button>
+          <button type="button" data-view="convo" role="radio">Conversation</button>
+        </div>
+        <span class="tool-sep" aria-hidden="true"></span>
+        <button id="invite" class="tool-btn">Invite</button>
+        <button id="history-btn" class="tool-btn">History</button>
+        <button id="share" class="tool-btn" hidden></button>
+        <button id="sound-btn" class="tool-btn app-only">Sound on</button>
+        <a id="get-app" class="tool-btn web-only" href="https://github.com/santigonzalezballbe-arch/CoDev#desktop-app-recommended" target="_blank">Get the app</a>
+        <span class="bar-gap"></span>
+        <button id="chat-btn" class="tool-btn chat-btn">Chat</button>
+        <button id="add-claude" class="bar-btn" title="Open another AI of your own: Claude, DeepSeek, a local model or ChatGPT">+ Another AI</button>
       </div>
-      <button id="sound-btn" class="bar-btn quiet app-only">Sound on</button>
-      <button id="chat-btn" class="bar-btn chat-btn">Chat</button>
-      <span id="conn" class="conn">Offline</span>
     </header>
     <div id="alert" class="alert" hidden></div>
 

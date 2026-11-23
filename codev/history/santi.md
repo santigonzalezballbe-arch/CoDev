@@ -312,3 +312,11 @@ Canvis:
 Proves: `npm test` 61/61. Captures de la vista web a 1300 i 900 px.
 
 Pendent: provar-ho a l'app d'escriptori amb terminals reals i amb una finestra molt estreta (menys de 600 px).
+
+## 2026-11-23 17:50
+
+Petició: fer el commit i publicar la versió amb la capçalera nova.
+
+Canvis: `package.json` i `package-lock.json` passen a 0.4.18. Commit i etiqueta `v0.4.18` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
+
+Pendent: comprovar que la release té tots els instal·ladors.

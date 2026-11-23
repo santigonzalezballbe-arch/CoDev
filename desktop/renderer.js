@@ -2529,8 +2529,51 @@ function renderHeads() {
     updateHead(p);
     renderConvo(p);
   }
-  if (S.cfg) updateNoteTargets();
+  if (S.cfg) {
+    updateNoteTargets();
+    renderPresence();
+  }
   keepAwake();
+}
+
+/** Top strip: one dot per person in the room, in their colour; a green mark while one of their AIs works. */
+function renderPresence() {
+  const box = $('#presence');
+  if (!box) return;
+  const people = new Map(); // person -> { here, ais, working }
+  const person = (name) => {
+    const key = splitMember(name)[0];
+    if (!people.has(key)) people.set(key, { here: false, ais: 0, working: 0 });
+    return people.get(key);
+  };
+  person(S.cfg.name).here = true;
+  for (const [n, m] of S.members) {
+    const away = !isMe(n) && (m.status === 'offline' || (!m.viewers && Date.now() - m.lastSeen > 15 * 60_000));
+    if (!away) person(n).here = true;
+  }
+  for (const p of S.panes.values()) {
+    const x = person(p.member);
+    if (p.state === 'offline') continue;
+    x.here = true;
+    x.ais++;
+    if (p.state === 'working') x.working++;
+  }
+  const names = [...people.keys()].filter((n) => people.get(n).here)
+    .sort((a, b) => (isMe(a) ? -1 : isMe(b) ? 1 : a.localeCompare(b)));
+  const key = names.map((n) => `${n}:${colorOf(n)}:${people.get(n).ais}:${people.get(n).working}`).join('|');
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  box.replaceChildren(
+    ...names.map((n) => {
+      const { ais, working } = people.get(n);
+      const el = h('span', { class: `face${working ? ' busy' : ''}` }, [...n][0]?.toUpperCase() || '?');
+      el.style.setProperty('--person', colorOf(n));
+      const what = ais ? `${ais} AI${ais === 1 ? '' : 's'}${working ? `, ${working} working` : ''}` : 'no AI open';
+      el.title = `${n}${isMe(n) ? ' (you)' : ''} · ${what}`;
+      return el;
+    })
+  );
+  box.title = `${names.length} in the room`;
 }
 setInterval(renderHeads, 400);
 
