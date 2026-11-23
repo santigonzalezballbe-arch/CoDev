@@ -51,6 +51,33 @@ test("the person's own unpushed commits are never pushed for them", async () => 
   assert.equal(git(remote, 'log', '-1', '--format=%s', 'main'), 'init', 'the remote did not move');
 });
 
+test('logs still reach the remote after it moved on, and earlier unpushed logs go with them', async () => {
+  const { remote, work } = setup();
+  // A teammate pushes in between.
+  const other = path.join(path.dirname(remote), 'other');
+  git(path.dirname(remote), 'clone', remote, other);
+  git(other, 'config', 'user.name', 'Pau');
+  git(other, 'config', 'user.email', 'pau@example.com');
+  appendLog(other, 'codev/history/pau.md', '## Pau <!-- codev:open ts=1 -->');
+  git(other, 'add', '.');
+  git(other, 'commit', '-m', 'pau');
+  git(other, 'push');
+  // Here: earlier log commits that never got pushed, then a new one.
+  appendLog(work, 'codev/history/ana-ai0.md', '<!-- codev:open ts=2 -->');
+  git(work, 'add', '.');
+  git(work, 'commit', '-m', 'old');
+  appendLog(work, 'codev/history/ana-ai0.md', '<!-- codev:close ts=3 -->');
+  git(work, 'add', '.');
+  git(work, 'commit', '-m', 'old close');
+  appendLog(work, LOG, '## entry');
+
+  assert.equal(await publishLog(work, [LOG], 'codev: Ana'), 'pushed');
+  assert.match(git(remote, 'show', 'main:codev/history/ana-ai0.md'), /codev:close/, 'the stuck close is published');
+  assert.match(git(remote, 'show', 'main:codev/history/pau.md'), /Pau/, "the teammate's log is kept");
+  assert.match(git(remote, 'show', `main:${LOG}`), /entry/);
+  assert.equal(git(remote, 'show', 'main:app.js'), 'v1');
+});
+
 test('outside a git repository it does nothing', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codev-norepo-'));
   appendLog(dir, LOG, '## entry');

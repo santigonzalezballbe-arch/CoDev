@@ -57,14 +57,44 @@ export async function publishLog(root, files, message) {
 
   const upstream = tryGit(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
   if (!upstream || !upstream.includes('/')) return committed ? 'committed' : 'nothing';
-  // Push only if every commit not on the remote yet touches nothing but these files: the person's
-  // own unpushed work is theirs to publish.
-  const pending = tryGit(root, ['diff', '--name-only', `${upstream}..HEAD`]);
-  if (pending === null || !pending) return committed ? 'committed' : 'nothing';
-  if (pending.split('\n').some((f) => !paths.includes(f))) return committed ? 'committed' : 'nothing';
   const [remote, ...rest] = upstream.split('/');
-  const ok = tryGit(root, ['push', '--no-verify', '--quiet', remote, `HEAD:${rest.join('/')}`], 30_000);
+  const branch = rest.join('/');
+  tryGit(root, ['fetch', '--quiet', remote, branch], 30_000); // a teammate may have pushed meanwhile
+  // Push only if every local change not on the remote yet is a CoDev log (this one, or an earlier one
+  // that could not be pushed): the person's own unpushed work is theirs to publish.
+  const pending = tryGit(root, ['diff', '--name-only', `${upstream}...HEAD`]);
+  if (pending === null || !pending) return committed ? 'committed' : 'nothing';
+  const logs = pending.split('\n').filter(Boolean);
+  if (logs.some((f) => !isLog(f))) return committed ? 'committed' : 'nothing';
+  // Fast-forward: push HEAD. Otherwise (the remote moved on) never pull or rebase the person's
+  // branch: build one commit on top of the remote with our version of the logs, and push that.
+  const ff = tryGit(root, ['merge-base', '--is-ancestor', upstream, 'HEAD']) !== null;
+  const sha = ff ? 'HEAD' : logsOnTop(root, upstream, logs, message);
+  if (!sha) return 'error';
+  const ok = tryGit(root, ['push', '--no-verify', '--quiet', remote, `${sha}:${branch}`], 30_000);
   return ok === null ? 'error' : 'pushed';
+}
+
+const isLog = (f) => /^codev\/history\/[^/]+\.md$/.test(f);
+
+/** A commit whose parent is `upstream` and whose logs are HEAD's version of `files`. Its sha, or null. */
+function logsOnTop(root, upstream, files, message) {
+  const index = path.join(tryGit(root, ['rev-parse', '--absolute-git-dir']) || root, `codev-index-${process.pid}`);
+  const env = { ...process.env, GIT_INDEX_FILE: index, GIT_TERMINAL_PROMPT: '0' };
+  const run = (args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env, timeout: 20_000 }).trim();
+  try {
+    run(['read-tree', upstream]);
+    for (const f of files) {
+      const blob = tryGit(root, ['rev-parse', '--verify', '--quiet', `HEAD:${f}`]);
+      if (blob) run(['update-index', '--add', '--cacheinfo', `100644,${blob},${f}`]);
+      else run(['update-index', '--force-remove', '--', f]);
+    }
+    return run(['commit-tree', run(['write-tree']), '-p', upstream, '-m', message]);
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(index, { force: true });
+  }
 }
 
 /** Runs publishLog in a detached process, so the hook returns at once and a slow push blocks no one. */

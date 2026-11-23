@@ -207,3 +207,8 @@ Pendent: comprovar que la release té els instal·ladors; l'app instal·lada s'a
 
 ## 2026-11-23 16:02 — Santi closed the session
 <!-- codev:close ts=1795446176559 -->
+
+## 2026-11-23 16:30
+Petició: release nova de CoDev (0.4.14) amb l'arreglament de les sessions "obertes" fantasma.
+Canvis: cli/gitsync.js puja també logs antics pendents de codev/history/ i, si el remot ha avançat, crea un commit sobre el remot només amb els logs (sense rebase); test a test/gitsync.test.js; versió 0.4.14 a package.json.
+Pendent: comprovar que l'Action de release acaba i instal·lar la 0.4.14.
