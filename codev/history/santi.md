@@ -284,3 +284,9 @@ Estat (17:00): els Tests de GitHub Actions de `v0.4.17` han passat; el workflow 
 
 ## 2026-11-23 17:16 — Santi closed the session
 <!-- codev:close ts=1795450590256 -->
+
+## 2026-11-23 17:18 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795450699480 room="CoDev" name="Santi" -->
+
+## 2026-11-23 17:18 — Santi closed the session
+<!-- codev:close ts=1795450699914 -->
