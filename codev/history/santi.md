@@ -245,3 +245,11 @@ Pendent: release nova. Mentrestant, a l'altre ordinador: iniciar sessió amb Git
 Petició: commit i release dels dos arreglaments anteriors (sessions fantasma i "Looking for their room…").
 Canvis: `package.json` i `package-lock.json` a 0.4.16; commit i etiqueta `v0.4.16` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
 Pendent: comprovar que la release té els instal·ladors; provar-ho a l'app real (sobretot a Windows, amb el Foix).
+
+## 2026-11-23 16:48 — instal·lar la 0.4.16
+Petició: instal·lar la release 0.4.16 en aquest ordinador.
+Canvi (fora del repo): `~/Applications/CoDev.AppImage` substituït per la 0.4.16 de la release (SHA-256 verificat). L'app oberta segueix sent la versió anterior fins que es tanqui i es torni a obrir.
+Pendent: reiniciar CoDev; el Foix ha d'actualitzar (a Windows) perquè les seves sessions es tanquin bé.
+
+## 2026-11-23 16:49 — Santi closed the session
+<!-- codev:close ts=1795448951315 -->
