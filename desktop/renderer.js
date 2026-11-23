@@ -625,6 +625,10 @@ const repoInput = form.repo;
 const repoList = $('#repo-list');
 const repoArrow = $('#repo-arrow');
 
+// "https://github.com/owner/repo.git", "git@github.com:owner/repo" and "owner/repo" are the same repository.
+const repoKey = (s) =>
+  String(s || '').trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?github\.com[/:]/, '').replace(/^git@github\.com:/, '').replace(/\.git$/, '').replace(/\/+$/, '');
+
 // Repositories opened before, newest first: shown on top of the list, even without signing in.
 const RECENT_MAX = 10;
 const recentRepos = () => (store.get('codev:recentRepos') || []).filter((x) => x && typeof x.repo === 'string');
@@ -633,7 +637,7 @@ function rememberRepo(repo, room) {
   store.set('codev:recentRepos', [{ repo, room, ts: Date.now() }, ...rest].slice(0, RECENT_MAX));
 }
 // First run with this feature: start the history with the last repository used.
-if (!store.get('codev:recentRepos') && saved.source === 'github' && /^[\w.-]+\/[\w.-]+$/.test(saved.repo || '')) rememberRepo(saved.repo, saved.room);
+if (!store.get('codev:recentRepos') && saved.source === 'github' && /^[\w.-]+\/[\w.-]+$/.test(repoKey(saved.repo))) rememberRepo(repoKey(saved.repo), saved.room);
 function forgetRepo(repo) {
   store.set('codev:recentRepos', recentRepos().filter((x) => x.repo !== repo));
   renderRepoList();
@@ -644,14 +648,14 @@ const ago = (ts) => {
 };
 
 function renderRepoList() {
-  const q = repoInput.value.trim().toLowerCase();
+  const q = repoKey(repoInput.value);
   const recent = recentRepos();
   const known = new Map(repos.all.map((x) => [x.nameWithOwner.toLowerCase(), x]));
   const recentItems = recent.map((r) => ({ ...(known.get(r.repo.toLowerCase()) || { nameWithOwner: r.repo }), recent: r }));
   const recentSet = new Set(recent.map((r) => r.repo.toLowerCase()));
-  // Opened with the arrow, or the text is a repository already chosen: show everything.
+  // The text is a repository already chosen (e.g. the last one, filled in at start): show everything.
   const exact = recentSet.has(q) || known.has(q);
-  const match = (x) => !q || exact || x.nameWithOwner.toLowerCase().includes(q);
+  const match = (x) => !q || exact || x.nameWithOwner.toLowerCase().includes(q) || (x.description || '').toLowerCase().includes(q);
   const top = recentItems.filter(match);
   const rest = repos.all.filter((x) => !recentSet.has(x.nameWithOwner.toLowerCase()) && match(x)).slice(0, 200);
   repos.shown = [...top, ...rest];
@@ -696,6 +700,10 @@ function openRepoList(open) {
 }
 function pickRepo(x) {
   repoInput.value = x.nameWithOwner;
+  if (x.recent?.room && form.room.value !== x.recent.room) {
+    form.room.value = x.recent.room; // back to the room you used with it
+    form.room.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   openRepoList(false);
   repoInput.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -708,7 +716,9 @@ repoInput.addEventListener('input', () => {
   if (document.activeElement === repoInput && !repos.open && (repos.all.length || recentRepos().length)) repos.open = true;
   renderRepoList();
 });
-repoInput.addEventListener('focus', () => (repos.all.length || recentRepos().length) && !repoInput.value && openRepoList(true));
+// Clicking the field shows the list, also when it already holds the last repository.
+repoInput.addEventListener('focus', () => (repos.all.length || recentRepos().length) && openRepoList(true));
+repoInput.addEventListener('mousedown', () => document.activeElement === repoInput && !repos.open && openRepoList(true));
 repoInput.addEventListener('blur', () => openRepoList(false));
 repoInput.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -996,6 +1006,10 @@ function openWorkspace() {
   if (!WEB) S.historyReady = api.historyOpen({ root: S.cfg.root });
   setupHistory();
   connectTerminals();
+  // Responsive: re-flow the windows when the app is resized, and keep the History panel under the
+  // top bar, whose height changes when its buttons wrap.
+  window.addEventListener('resize', debounce(layout, 80));
+  new ResizeObserver(() => $('#app').style.setProperty('--bar-h', `${$('.topbar').offsetHeight}px`)).observe($('.topbar'));
   // Start Claude once we know how many panes there are: if the terminal shrinks right after
   // starting, the redraw leaves artifacts behind.
   const first = new Promise((resolve) => {
@@ -1648,6 +1662,7 @@ function makePane({ id, member, local, title, agent = 'claude', model = '', crea
   return pane;
 }
 
+const PANE_MIN_H = 300;
 function layout() {
   const panes = [...S.panes.values()].sort((a, b) => (a.local === b.local ? 0 : a.local ? -1 : 1));
   const grid = $('#panes');
@@ -1655,9 +1670,12 @@ function layout() {
     if (grid.children[i] !== p.root) grid.insertBefore(p.root, grid.children[i] || null);
   });
   const n = panes.length;
-  const cols = n <= 3 ? n : Math.ceil(n / 2);
-  grid.style.gridTemplateColumns = `repeat(${Math.max(cols, 1)}, minmax(0, 1fr))`;
-  grid.style.gridTemplateRows = `repeat(${Math.ceil(n / Math.max(cols, 1))}, minmax(0, 1fr))`;
+  // As many columns as fit (a terminal needs ~420px to be usable); rows never shrink below
+  // PANE_MIN_H: with many windows or a small window the grid scrolls instead of squashing them.
+  const fit = Math.max(1, Math.floor((grid.clientWidth || window.innerWidth) / 420));
+  const cols = Math.max(1, Math.min(n <= 3 ? n : Math.ceil(n / 2), fit));
+  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  grid.style.gridTemplateRows = `repeat(${Math.ceil(n / cols)}, minmax(${PANE_MIN_H}px, 1fr))`;
   renderHeads();
   updateNoteTargets();
 }
@@ -1809,6 +1827,7 @@ async function openNewAI({ first = false } = {}) {
   // Under the button that opened it, inside the window.
   const r = $('#add-claude').getBoundingClientRect();
   box.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - 372))}px`;
+  box.style.top = `${r.bottom + 6}px`;
   box.hidden = false;
   if (!first) $('#nc-name').select();
 }

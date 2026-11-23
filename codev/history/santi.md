@@ -193,3 +193,8 @@ Canvis:
 - `desktop/main.js`: mida mínima de finestra 900×560 → 480×420.
 Proves: `npm test` OK; app des del codi amb Playwright a 1500, 1000, 700 i 480 px amb 6 terminals, History, Chat i "Another AI"; llista de recents amb la URL al camp.
 Pendent: release (0.4.13) perquè arribi a l'app instal·lada. Sense commit.
+
+## 2026-11-23 15:50 — release 0.4.13
+Petició: publicar l'arranjament de l'historial de repositoris i l'app responsive.
+Canvis: `package.json` i `package-lock.json` a 0.4.13; commit i etiqueta `v0.4.13` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
+Pendent: comprovar que la release té els instal·ladors; l'app instal·lada s'actualitza sola amb l'avís.

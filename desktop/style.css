@@ -158,7 +158,11 @@ button { cursor: pointer; }
 /* ================= Workspace ================= */
 .app { height: 100%; display: flex; flex-direction: column; background: var(--white); }
 
-.topbar { display: flex; align-items: center; gap: 28px; padding: 0 20px; min-height: 64px; background: var(--white); color: var(--black); }
+.topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 10px 20px; min-height: 64px; background: var(--white); color: var(--black); }
+.topbar > * { flex: none; }
+.room { min-width: 0; flex: 0 1 auto !important; }
+#room-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28ch; }
+.bar-btn { white-space: nowrap; }
 .topbar .wordmark { font-size: 18px; }
 .room { display: flex; align-items: baseline; gap: 10px; }
 .room-word { font-size: 16px; }
@@ -187,7 +191,8 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 /* Panes: a 6px white frame between terminals, square corners. */
 /* Every terminal is a window: a frame in its person's colour, white space between windows.
    The window you are typing in gets a thicker frame. */
-.panes { flex: 1; min-height: 0; display: grid; gap: 12px; padding: 4px 12px 12px; background: var(--white); }
+.panes { flex: 1; min-height: 0; display: grid; gap: 12px; padding: 4px 12px 12px; background: var(--white); overflow-y: auto; }
+@media (max-width: 700px) { .panes { gap: 8px; padding: 4px 6px 6px; } }
 .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--term); position: relative;
   border: 3px solid var(--person, var(--black)); transition: box-shadow 160ms; }
 .pane:focus-within { box-shadow: 0 0 0 3px var(--person, var(--black)); }
@@ -292,7 +297,7 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 
 /* ---------- Naming another AI ---------- */
 /* It floats over the terminals, so it is the one place with a shadow. */
-.new-claude { position: absolute; top: 64px; z-index: 6; width: 360px; max-height: calc(100vh - 80px); overflow: auto; padding: 20px; background: var(--black); color: var(--white); box-shadow: 0 18px 40px #0007; animation: pop 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.new-claude { position: absolute; top: var(--bar-h, 64px); z-index: 6; width: min(360px, calc(100vw - 24px)); max-height: calc(100vh - var(--bar-h, 64px) - 16px); overflow: auto; padding: 20px; background: var(--black); color: var(--white); box-shadow: 0 18px 40px #0007; animation: pop 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 .nc-title { margin: 0; font: 800 24px/1.05 var(--display); letter-spacing: -0.02em; }
 .nc-help { margin: 8px 0 14px; font: 400 16px/1.45 var(--text); }
 #nc-name { width: 100%; font: 400 22px/1.3 var(--text); color: var(--white); background: transparent; border: 0; border-bottom: 2px solid #777; border-radius: 0; padding: 4px 0 8px; }
@@ -339,7 +344,7 @@ a.bar-btn { text-decoration: none; display: inline-block; }
   100% { box-shadow: inset 0 0 0 2px var(--black), 0 0 0 12px transparent; }
 }
 @media (prefers-reduced-motion: reduce) { .chat-btn.ping { animation: none; } }
-.chat { position: absolute; top: 64px; right: 0; bottom: 0; width: min(440px, 100%); z-index: 4; background: var(--white); color: var(--black); display: flex; flex-direction: column; }
+.chat { position: absolute; top: var(--bar-h, 64px); right: 0; bottom: 0; width: min(440px, 100%); z-index: 4; background: var(--white); color: var(--black); display: flex; flex-direction: column; }
 .chat-head { display: grid; gap: 12px; padding: 18px 20px 16px; background: var(--black); color: var(--white); }
 .chat-head-top { display: flex; align-items: center; justify-content: space-between; }
 .chat-title { margin: 0; font: 800 30px/1 var(--display); letter-spacing: -0.03em; }
@@ -394,7 +399,7 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 
 /* ---------- History ---------- */
 .app { position: relative; }
-.history { position: absolute; inset: 64px 0 0 0; z-index: 5; background: var(--white); color: var(--black); display: flex; flex-direction: column; }
+.history { position: absolute; inset: var(--bar-h, 64px) 0 0 0; z-index: 5; background: var(--white); color: var(--black); display: flex; flex-direction: column; }
 .history-bar { display: flex; align-items: center; gap: 16px; padding: 18px 28px; background: var(--white-2); flex-wrap: wrap; }
 .history-title { margin: 0 12px 0 0; font: 800 32px/1 var(--display); letter-spacing: -0.03em; }
 .history-bar input { flex: 1; min-width: 220px; font: 400 18px/1.3 var(--text); background: transparent; border: 0; border-bottom: 2px solid #9a9a9a; border-radius: 0; padding: 6px 0; }
@@ -410,6 +415,14 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 .history-empty { margin-top: 64px; max-width: 36ch; font: 400 22px/1.45 var(--text); }
 
 .entry { display: grid; grid-template-columns: 64px 1fr; gap: 20px; padding: 14px 0; }
+@media (max-width: 700px) {
+  .history-bar { padding: 12px 14px; gap: 10px; }
+  .history-title { font-size: 24px; }
+  .history-bar input { min-width: 140px; }
+  .history-count { padding: 10px 14px 0; }
+  .history-list { padding: 4px 14px 32px; }
+  .entry { grid-template-columns: 48px 1fr; gap: 10px; }
+}
 .entry-time { font: 700 15px/1.5 var(--display); font-variant-numeric: tabular-nums; }
 .entry-who { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .entry-name { font: 800 15px/1 var(--display); background: var(--person); color: #0a0a0a; padding: 5px 8px 4px; }
@@ -507,3 +520,24 @@ a.bar-btn { text-decoration: none; display: inline-block; }
 .update .bar-btn { background: var(--white); color: var(--black); }
 .update .bar-btn.quiet { background: var(--black-2); color: var(--white); }
 .update .bar-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* ================= Responsive ================= */
+/* Narrow window: smaller buttons, so the top bar takes one or two lines instead of four. */
+@media (max-width: 1100px) {
+  .topbar { gap: 6px 8px; padding: 8px 12px; min-height: 52px; }
+  .topbar .room-word { display: none; }
+  .topbar .bar-btn, .topbar .view-switch button { font-size: 13px; padding: 9px 11px; }
+  #room-name { font-size: 18px; }
+}
+/* Narrow terminal window (small app, or many windows side by side): a one-line header. */
+.pane { container-type: inline-size; }
+@container (max-width: 560px) {
+  .pane-head { gap: 10px; padding: 8px 10px 4px 8px; }
+  .pane-head .bot { width: 44px; height: 32px; }
+  .who-name { font-size: 17px; }
+  .who-state { font-size: 15px; }
+  .who-ai { display: none; }
+  .intent { font-size: 14px; }
+  .head-side { gap: 4px; }
+  .head-side button { font-size: 13px; padding: 6px 8px; }
+}

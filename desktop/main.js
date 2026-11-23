@@ -40,8 +40,8 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1500,
     height: 920,
-    minWidth: 900,
-    minHeight: 560,
+    minWidth: 480,
+    minHeight: 420,
     backgroundColor: '#0e1016',
     title: 'CoDev',
     autoHideMenuBar: true,
