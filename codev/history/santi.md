@@ -183,3 +183,13 @@ Pendent: comprovar que la release té els instal·ladors; instal·lar la 0.4.12 
 
 ## 2026-11-23 15:36 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795444573189 room="CoDev" name="Santi" -->
+
+## 2026-11-23 15:45 — historial de repositoris i app responsive
+Petició: l'historial de repositoris de la pantalla d'inici no funcionava; l'app quedava malament en fer-la petita o amb moltes finestres.
+Canvis:
+- `desktop/renderer.js`: el camp de repositori ve emplenat amb la URL (`https://github.com/x/y.git`) i es comparava amb `x/y`, així que la llista sortia buida ("No repository matches"). Ara `repoKey()` normalitza URL/SSH/`owner/repo`; en fer clic al camp la llista s'obre encara que ja tingui text; triar un recent també posa el nom de sala que hi vas fer servir.
+- `desktop/renderer.js` (`layout`): columnes segons l'amplada (~420 px per terminal) i files de 300 px com a mínim; si no hi caben, la quadrícula fa scroll en comptes d'aixafar-les. Es recalcula en redimensionar. `--bar-h` segueix l'alçada de la barra superior (History, Chat i el diàleg "Another AI" s'hi col·loquen a sota).
+- `desktop/style.css`: barra superior que salta de línia i amb botons més petits sota 1100 px; capçalera de panell compacta amb container query (<560 px); History adaptat a pantalla estreta.
+- `desktop/main.js`: mida mínima de finestra 900×560 → 480×420.
+Proves: `npm test` OK; app des del codi amb Playwright a 1500, 1000, 700 i 480 px amb 6 terminals, History, Chat i "Another AI"; llista de recents amb la URL al camp.
+Pendent: release (0.4.13) perquè arribi a l'app instal·lada. Sense commit.
