@@ -198,3 +198,6 @@ Pendent: release (0.4.13) perquè arribi a l'app instal·lada. Sense commit.
 Petició: publicar l'arranjament de l'historial de repositoris i l'app responsive.
 Canvis: `package.json` i `package-lock.json` a 0.4.13; commit i etiqueta `v0.4.13` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
 Pendent: comprovar que la release té els instal·ladors; l'app instal·lada s'actualitza sola amb l'avís.
+
+## 2026-11-23 15:49 — Santi closed the session
+<!-- codev:close ts=1795445372169 -->
