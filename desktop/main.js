@@ -16,6 +16,7 @@ import { History } from './history.js';
 import { openSessions, needsClose, closeMarker } from './presence.js';
 import { appendLog, stamp } from '../cli/gitsync.js';
 import { historyPath } from '../cli/config.js';
+import { closeDeadSessions } from '../cli/sessions.js';
 import {
   fingerprint,
   sameProject,
@@ -729,8 +730,11 @@ function closeLog({ root, name, since }) {
   } catch {
     return Promise.resolve();
   }
-  // The push runs in its own process (as the hook's does), so it never blocks the window and can
-  // finish after the app has quit.
+  return publishClosed(root, file, name);
+}
+// The push runs in its own process (as the hook's does), so it never blocks the window and can
+// finish after the app has quit.
+function publishClosed(root, file, name) {
   return new Promise((resolve) => {
     try {
       const r = getRunner();
@@ -748,6 +752,13 @@ function closeLog({ root, name, since }) {
       resolve();
     }
   });
+}
+// AIs that died without closing their session, whatever ran them (a terminal window closed
+// abruptly, this app killed or crashed last time): close them. On start and every minute.
+function closeDeadAiSessions() {
+  try {
+    for (const d of closeDeadSessions()) publishClosed(d.root, d.file, d.name);
+  } catch {}
 }
 const endAllSessions = () => Promise.all([...aiSessions.keys()].map((id) => endSession(id)));
 
@@ -1294,6 +1305,8 @@ if (!app.requestSingleInstanceLock()) {
     lanDiscovery(); // start listening early: rooms on the network are heard every few seconds
     win.webContents.once('did-finish-load', () => setTimeout(checkForUpdate, 3000));
     setInterval(checkForUpdate, 4 * 60 * 60 * 1000);
+    closeDeadAiSessions();
+    setInterval(closeDeadAiSessions, 60 * 1000);
   });
 }
 app.on('window-all-closed', () => {

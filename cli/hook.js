@@ -6,6 +6,7 @@ import path from 'node:path';
 import { findConfig, toProjectPath, api, teamSummary, projectRules, historyPath } from './config.js';
 import { autoPushEnabled, appendLog, stamp, publishLogInBackground } from './gitsync.js';
 import { openMarker, closeMarker } from '../desktop/presence.js';
+import { agentPid, registerSession, unregisterSession, closeDeadSessions } from './sessions.js';
 
 /** Writes a line in the person's log (if `entry`) and publishes the log to the git remote in the background. */
 function syncLog(cfg, entry, message) {
@@ -232,12 +233,18 @@ export async function runHook() {
         // A new session (not a /clear or a compaction): leave a line in the log and push it, so the
         // team sees in the repository that this person is working.
         if (input.hook_event_name === 'SessionStart' && !['clear', 'compact'].includes(input.source)) {
+          // Sessions on this computer whose AI died without closing (window closed abruptly, app or
+          // computer killed): close them now.
+          try {
+            for (const d of closeDeadSessions()) publishLogInBackground(d.root, [d.file, 'codev/README.md'], `codev: ${d.name} closed a session`);
+          } catch {}
           const ts = Date.now();
           syncLog(
             cfg,
             `## ${stamp(new Date(ts))} — ${cfg.name} opened a session in room "${cfg.room}" (${agentName(input)})\n${openMarker({ ts, room: cfg.room, name: cfg.name })}`,
             `codev: ${cfg.name} opened a session`
           );
+          if (autoPushEnabled(cfg)) registerSession({ pid: agentPid(), root: cfg.root, name: cfg.name, file: historyPath(cfg), since: ts });
         }
         // The rules go in even if the server cannot be reached.
         let team = null;
@@ -332,6 +339,9 @@ export async function runHook() {
       }
 
       case 'SessionEnd':
+        // A /clear ends the conversation, not the session: the same AI keeps working.
+        if (input.reason === 'clear') return;
+        unregisterSession(agentPid());
         {
           const ts = Date.now();
           syncLog(cfg, `## ${stamp(new Date(ts))} — ${cfg.name} closed the session\n${closeMarker({ ts })}`, `codev: ${cfg.name} closed a session`);

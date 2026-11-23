@@ -14,6 +14,8 @@ let server, base, dirA, dirB;
 // Run from a CoDev terminal, the CODEV_* variables point at the real room and win over the test's
 // .codev.json: the test prompts ("Build the login"...) would land in the team's history.
 for (const k of Object.keys(process.env)) if (k.startsWith('CODEV_')) delete process.env[k];
+// The hooks register their sessions; keep them out of this computer's real list.
+process.env.CODEV_SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'codev-e2e-sessions-'));
 
 function project(name) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `codev-${name}-`));

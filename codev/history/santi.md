@@ -256,3 +256,15 @@ Pendent: reiniciar CoDev; el Foix ha d'actualitzar (a Windows) perquè les seves
 
 ## 2026-11-23 16:49 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795448980284 room="CoDev" name="Santi" -->
+
+## 2026-11-23 17:00 — sessions que queden obertes en tancar la finestra de cop (release 0.4.17)
+Petició: si la finestra es tanca de manera abrupta, al git la sessió segueix "open"; netejar l'historial i arreglar-ho.
+Historial: revisats tots els logs dels projectes d'aquest ordinador; només hi ha obertes la sessió actual del Santi i la del Foix (activa), res a netejar.
+Causa: si la finestra, l'app o l'ordinador moren, no s'executa ni el hook SessionEnd ni el tancament de l'app (0.4.16 només cobria terminals que acaben dins l'app).
+Canvis:
+- `cli/sessions.js` (nou): registre local (`~/.codev/sessions/<pid>.json`) del procés de l'IA de cada sessió (primer ancestre del hook que no és un shell). `closeDeadSessions` escriu el "closed" de les sessions amb el procés mort si l'últim marcador del log és encara el seu "open".
+- `cli/hook.js`: SessionStart tanca les sessions mortes i registra la nova; SessionEnd la desregistra. Un `/clear` ja no escriu "closed" (la sessió segueix viva).
+- `desktop/main.js`: l'app fa l'escombrat en arrencar i cada minut (`publishClosed` reutilitzat).
+- `test/sessions.test.js` (nou), `test/e2e.test.js` (registre en un directori temporal). `npm test` 61/61.
+- Versió 0.4.17, commit i etiqueta `v0.4.17`.
+Pendent: instal·lar la 0.4.17 aquí i al Foix (Windows: el pid es troba amb PowerShell, no provat). Les sessions obertes abans d'actualitzar no estan registrades: si es tanquen de cop, cauen pel límit de 12 h.
