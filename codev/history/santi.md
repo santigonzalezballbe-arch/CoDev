@@ -174,3 +174,6 @@ Pendent: connectar de debò requereix que la sala de l'altre sigui trobable (mat
 Petició: publicar el registre automàtic (commit i push en obrir/tancar sessió) i l'avís de qui està connectat.
 Canvis: `package.json` i `package-lock.json` a 0.4.12; commit i etiqueta `v0.4.12` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
 Pendent: comprovar que la release té els instal·ladors; instal·lar la 0.4.12 als dos ordinadors i provar-ho entre tots dos.
+
+## 2026-11-23 15:33 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795444398245 room="CoDev" name="Santi" -->
