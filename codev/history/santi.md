@@ -329,3 +329,11 @@ Pendent: comprovar que la release té tots els instal·ladors.
 
 ## 2026-11-23 19:23 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795458224114 room="CoDev" name="Santi" -->
+
+## 2026-11-23 19:40 — el col·laborador no publicava les seves sessions
+Petició: a DiOrg, el col·laborador de GitHub (jordi412) obre sessions però al repo no apareix cap commit "opened a session"; només es podia entrar a la sala per l'enllaç d'invitació.
+Causa: `publishLog` no pujava res si la persona tenia commits propis sense pujar (cosa habitual quan algú programa), i tampoc si la branca no tenia upstream.
+Canvis:
+- `cli/gitsync.js`: si hi ha feina pròpia sense pujar (o el remot ha avançat), es puja un commit només amb els logs de CoDev a sobre del remot (`logsOnTop`); els commits de la persona no es pugen mai. Sense upstream, prova `<remote>/<branca actual>`. `codev/README.md` també compta com a fitxer de CoDev.
+- `test/gitsync.test.js`: tests nous per als dos casos. `README.md`: text actualitzat. `npm test` 62/62.
+Pendent: publicar una versió nova i que el col·laborador l'instal·li; fins aleshores, la seva app vella seguirà sense publicar-ho. Sense commit encara. Si amb la versió nova tampoc apareix, comprovar que el seu `git push` funciona sense demanar credencials.
