@@ -41,14 +41,31 @@ test('the log alone is committed and pushed; the rest of the work stays untouche
   assert.equal(await publishLog(work, [LOG], 'again'), 'nothing', 'nothing new: no empty commit');
 });
 
-test("the person's own unpushed commits are never pushed for them", async () => {
+test("with unpushed work of their own, the log still reaches the remote but their commits do not", async () => {
   const { remote, work } = setup();
   fs.writeFileSync(path.join(work, 'app.js'), 'v2\n');
   git(work, 'commit', '-am', 'my work, not ready');
+  const mine = git(work, 'rev-parse', 'HEAD');
   appendLog(work, LOG, '## entry');
 
-  assert.equal(await publishLog(work, [LOG], 'codev: log'), 'committed');
-  assert.equal(git(remote, 'log', '-1', '--format=%s', 'main'), 'init', 'the remote did not move');
+  assert.equal(await publishLog(work, [LOG], 'codev: Ana opened a session'), 'pushed');
+  assert.equal(git(remote, 'log', '-1', '--format=%s', 'main'), 'codev: Ana opened a session');
+  assert.equal(git(remote, 'show', 'main:app.js'), 'v1', 'their work was not published');
+  assert.match(git(remote, 'show', `main:${LOG}`), /entry/);
+  assert.throws(() => git(remote, 'cat-file', '-e', `${mine}^{commit}`), 'their commit is not on the remote');
+  // Their branch is untouched, and pulling later merges cleanly.
+  assert.equal(git(work, 'log', '-2', '--format=%s'), 'codev: Ana opened a session\nmy work, not ready');
+  git(work, 'pull', '--no-rebase', '--no-edit', '--quiet');
+  assert.equal(git(work, 'show', 'HEAD:app.js'), 'v2');
+});
+
+test('without an upstream set, the log goes to the same branch on origin', async () => {
+  const { remote, work } = setup();
+  git(work, 'branch', '--unset-upstream');
+  appendLog(work, LOG, '## entry');
+
+  assert.equal(await publishLog(work, [LOG], 'codev: log'), 'pushed');
+  assert.match(git(remote, 'show', `main:${LOG}`), /entry/);
 });
 
 test('logs still reach the remote after it moved on, and earlier unpushed logs go with them', async () => {

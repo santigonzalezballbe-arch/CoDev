@@ -55,27 +55,44 @@ export async function publishLog(root, files, message) {
     }
   }
 
-  const upstream = tryGit(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
-  if (!upstream || !upstream.includes('/')) return committed ? 'committed' : 'nothing';
-  const [remote, ...rest] = upstream.split('/');
-  const branch = rest.join('/');
+  const target = upstreamOf(root);
+  if (!target) return committed ? 'committed' : 'nothing';
+  const { upstream, remote, branch } = target;
   tryGit(root, ['fetch', '--quiet', remote, branch], 30_000); // a teammate may have pushed meanwhile
-  // Push only if every local change not on the remote yet is a CoDev log (this one, or an earlier one
-  // that could not be pushed): the person's own unpushed work is theirs to publish.
   const pending = tryGit(root, ['diff', '--name-only', `${upstream}...HEAD`]);
   if (pending === null || !pending) return committed ? 'committed' : 'nothing';
-  const logs = pending.split('\n').filter(Boolean);
-  if (logs.some((f) => !isLog(f))) return committed ? 'committed' : 'nothing';
-  // Fast-forward: push HEAD. Otherwise (the remote moved on) never pull or rebase the person's
-  // branch: build one commit on top of the remote with our version of the logs, and push that.
-  const ff = tryGit(root, ['merge-base', '--is-ancestor', upstream, 'HEAD']) !== null;
+  const changed = pending.split('\n').filter(Boolean);
+  const logs = changed.filter(isCodev);
+  if (!logs.length) return committed ? 'committed' : 'nothing';
+  // Only CoDev files pending and a fast-forward: push HEAD. Otherwise (the person has unpushed work
+  // of their own, or the remote moved on) never push their commits nor pull or rebase their branch:
+  // build one commit on top of the remote with only our version of the logs, and push that. So the
+  // team always sees who opened a session, even while someone has work not ready to publish.
+  const ff = changed.every(isCodev) && tryGit(root, ['merge-base', '--is-ancestor', upstream, 'HEAD']) !== null;
   const sha = ff ? 'HEAD' : logsOnTop(root, upstream, logs, message);
   if (!sha) return 'error';
   const ok = tryGit(root, ['push', '--no-verify', '--quiet', remote, `${sha}:${branch}`], 30_000);
   return ok === null ? 'error' : 'pushed';
 }
 
-const isLog = (f) => /^codev\/history\/[^/]+\.md$/.test(f);
+const isCodev = (f) => /^codev\/history\/[^/]+\.md$/.test(f) || f === 'codev/README.md';
+
+/** The remote branch to publish to: the upstream, or else <remote>/<current branch> if it exists. */
+function upstreamOf(root) {
+  const up = tryGit(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+  if (up && up.includes('/')) {
+    const [remote, ...rest] = up.split('/');
+    return { upstream: up, remote, branch: rest.join('/') };
+  }
+  // No upstream set (a branch created locally, a clone made by hand…): try the same branch on a remote.
+  const branch = tryGit(root, ['symbolic-ref', '--short', 'HEAD']);
+  const remotes = (tryGit(root, ['remote']) || '').split('\n').filter(Boolean);
+  const remote = remotes.includes('origin') ? 'origin' : remotes[0];
+  if (!branch || !remote) return null;
+  tryGit(root, ['fetch', '--quiet', remote, branch], 30_000);
+  if (tryGit(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${branch}`]) === null) return null;
+  return { upstream: `${remote}/${branch}`, remote, branch };
+}
 
 /** A commit whose parent is `upstream` and whose logs are HEAD's version of `files`. Its sha, or null. */
 function logsOnTop(root, upstream, files, message) {

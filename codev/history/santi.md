@@ -337,3 +337,8 @@ Canvis:
 - `cli/gitsync.js`: si hi ha feina pròpia sense pujar (o el remot ha avançat), es puja un commit només amb els logs de CoDev a sobre del remot (`logsOnTop`); els commits de la persona no es pugen mai. Sense upstream, prova `<remote>/<branca actual>`. `codev/README.md` també compta com a fitxer de CoDev.
 - `test/gitsync.test.js`: tests nous per als dos casos. `README.md`: text actualitzat. `npm test` 62/62.
 Pendent: publicar una versió nova i que el col·laborador l'instal·li; fins aleshores, la seva app vella seguirà sense publicar-ho. Sense commit encara. Si amb la versió nova tampoc apareix, comprovar que el seu `git push` funciona sense demanar credencials.
+
+## 2026-11-23 19:50 — release 0.4.19
+Petició: publicar l'arranjament perquè tothom pugi les seves sessions.
+Canvis: `package.json` i `package-lock.json` a 0.4.19; commit i etiqueta `v0.4.19` pujats perquè GitHub Actions compili els instal·ladors.
+Pendent: comprovar la release i que el col·laborador de DiOrg instal·li la 0.4.19.
