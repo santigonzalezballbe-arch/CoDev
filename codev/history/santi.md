@@ -269,3 +269,6 @@ Canvis:
 - Versió 0.4.17, commit i etiqueta `v0.4.17`.
 Pendent: instal·lar la 0.4.17 aquí i al Foix (Windows: el pid es troba amb PowerShell, no provat). Les sessions obertes abans d'actualitzar no estan registrades: si es tanquen de cop, cauen pel límit de 12 h.
 Estat (17:00): els Tests de GitHub Actions de `v0.4.17` han passat; el workflow Release encara compila els instal·ladors.
+
+## 2026-11-23 17:12 — Santi closed the session
+<!-- codev:close ts=1795450333713 -->
