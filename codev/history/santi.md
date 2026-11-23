@@ -320,3 +320,6 @@ Petició: fer el commit i publicar la versió amb la capçalera nova.
 Canvis: `package.json` i `package-lock.json` passen a 0.4.18. Commit i etiqueta `v0.4.18` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
 
 Pendent: comprovar que la release té tots els instal·ladors.
+
+## 2026-11-23 19:12 — Santi closed the session
+<!-- codev:close ts=1795457577641 -->
