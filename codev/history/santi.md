@@ -180,3 +180,6 @@ Pendent: comprovar que la release té els instal·ladors; instal·lar la 0.4.12 
 
 ## 2026-11-23 15:34 — Santi closed the session
 <!-- codev:close ts=1795444479095 -->
+
+## 2026-11-23 15:36 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795444573189 room="CoDev" name="Santi" -->
