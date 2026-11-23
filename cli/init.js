@@ -123,7 +123,10 @@ This folder is kept by the AIs of everyone working on this project with [CoDev](
   when, what was asked, what changed and why, and what is left to do.
 
 Each person writes only their own file, so the logs never block each other and never conflict when you merge.
-Commit this folder with the rest of the project so the whole team can read it.
+CoDev commits and pushes each person's log on its own (when a session opens or closes, and after each logged task),
+so the team sees who is working without anyone committing by hand. Only that file goes in those commits, and
+nobody's unpushed work is ever pushed for them. To turn it off, add \`"autoPush": false\` to \`.codev.json\`
+or set \`CODEV_AUTOPUSH=0\`.
 `
   );
 }

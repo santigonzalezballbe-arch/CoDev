@@ -178,7 +178,9 @@ Use Claude Code as usual. `codev status` shows what your teammates are doing.
 
 CoDev tells every AI in the room to keep a log **inside the repository**, so the whole team (and anyone who clones the project later) can read what was done and why:
 
-- After any task that changes files, the AI appends an entry to `codev/history/<name>.md`: when, what was asked, what changed and why, and what is left to do. It commits it with the rest of its changes.
+- After any task that changes files, the AI appends an entry to `codev/history/<name>.md`: when, what was asked, what changed and why, and what is left to do.
+- CoDev commits and pushes that log on its own: a line when a session opens or closes, and each entry once the AI writes it. So the team sees in the repository who is working, with no manual commit. Only the log goes in those commits, and your own unpushed commits are never pushed for you (then the log waits for your next push). Turn it off with `"autoPush": false` in `.codev.json` or `CODEV_AUTOPUSH=0`.
+- The start screen reads those logs too: when you pick a repository or a folder, CoDev fetches it and tells you (with a desktop notification) who has a session open on the project, and offers to connect; it knocks on their room as soon as it can reach it (same network, or they pressed "Share online"). Picking a GitHub repository you already have also pulls it (fast-forward only), so you start from the latest code and logs.
 - Each person's AI writes only its own file, so the logs are never locked and never conflict when you merge.
 - Before starting a task, the AI is told to read its teammates' logs in `codev/history/`.
 - With Claude Code and Codex, if a turn changed files but the AI did not write its entry, CoDev's `Stop` hook asks it to write it before finishing (once per turn, so it can never get stuck). The Harness has no hooks: its rules tell it to keep the log.

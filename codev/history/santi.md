@@ -146,3 +146,31 @@ Pendent: release nova. Sense commit.
 Petició: publicar l'historial de repositoris.
 Canvis: `package.json` i `package-lock.json` a 0.4.11; commit i etiqueta `v0.4.11` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
 Pendent: comprovar que la release té els instal·ladors.
+
+## 2026-11-23 15:10 — commit i push automàtic del registre
+Petició: que els companys vegin al repositori que estàs connectat sense haver de fer cap canvi ni commit; l'historial (`codev/history/`) no es veia funcionar.
+Canvis:
+- `cli/gitsync.js` (nou): `publishLog` fa commit només del registre (`codev/history/<nom>.md` i `codev/README.md`) i push a l'upstream, en un procés en segon pla. No toca la resta de canvis (ni els staged), no fa pull ni rebase, i no fa push si tens commits propis sense pujar (el registre surt amb el teu proper push).
+- `cli/hook.js`: SessionStart (inici o represa) escriu "<nom> opened a session" i ho publica; Stop publica el registre si la IA hi ha escrit; SessionEnd escriu "closed the session" i ho publica. Es desactiva amb `"autoPush": false` a `.codev.json` o `CODEV_AUTOPUSH=0`.
+- `cli/codev.js`: comanda interna `publish-log`.
+- `cli/init.js`, `README.md`: documentació. `test/gitsync.test.js`: proves amb un remot nu.
+Proves: `npm test` 52/52; el hook real contra un repositori temporal deixa dos commits al remot.
+Pendent: release nova perquè l'app l'inclogui; els projectes ja configurats l'agafen sense tornar a fer `codev init`. Sense commit.
+Afegit: a l'AppImage, el procés en segon pla s'executa amb `$APPIMAGE` (el binari muntat desapareix en tancar-se). Nota: el hook Stop només detecta les entrades escrites amb Edit/Write, no amb una comanda de shell.
+
+## 2026-11-23 15:25 — pull en entrar i avís de qui està connectat
+Petició: en entrar amb un repositori de GitHub, fer pull; si el registre diu que algú està connectat, que l'app ofereixi connectar-s'hi.
+Canvis:
+- `desktop/presence.js` (nou): marques ocultes `<!-- codev:open ts=… room=… name=… -->` / `codev:close` i `openSessions()` (sessions obertes de menys de 12 h).
+- `cli/hook.js`: les línies d'obrir/tancar sessió porten la marca i el nom de la sala.
+- `desktop/main.js`: `prepare-repo` fa `git pull --ff-only` si el repositori ja hi és; `discover` retorna també `sessions`, llegides del clon (després d'un `fetch`, des de l'upstream) o de l'API de GitHub si no està clonat (com a molt un cop per minut). `presence.js` es copia al runtime de l'app empaquetada.
+- `desktop/renderer.js`: la pantalla d'inici mostra "X has had a session open… since HH:MM in room Y" amb "Connect" (truca a la porta quan la seva sala es pot trobar) i una notificació d'escriptori la primera vegada.
+- `cli/gitsync.js`: el procés en segon pla només fa servir `$APPIMAGE` dins d'Electron (a les terminals de CoDev `APPIMAGE` també hi és i obria l'app gràfica).
+- `README.md`; `test/presence.test.js`.
+Proves: `npm test` 54/54; a l'app des del codi (Electron + Playwright) amb un remot local: el hook de "Pau" puja el registre i la pantalla d'inici de "Santi" el mostra amb "Connect".
+Pendent: connectar de debò requereix que la sala de l'altre sigui trobable (mateixa xarxa o "Share online"). Release 0.4.12. Sense commit.
+
+## 2026-11-23 15:30 — release 0.4.12
+Petició: publicar el registre automàtic (commit i push en obrir/tancar sessió) i l'avís de qui està connectat.
+Canvis: `package.json` i `package-lock.json` a 0.4.12; commit i etiqueta `v0.4.12` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
+Pendent: comprovar que la release té els instal·ladors; instal·lar la 0.4.12 als dos ordinadors i provar-ho entre tots dos.

@@ -487,7 +487,7 @@ $('#pick').addEventListener('click', async () => {
 /* ---------- Teammates already in a room on the same project ---------- */
 // The main process listens on the local network and reads the GitHub repository (discovery.js).
 // Finding a room gives no access: "Ask to join" knocks, and the host lets you in or not.
-const found = { rooms: [], fp: null, knocking: null };
+const found = { rooms: [], sessions: [], fp: null, knocking: null, told: new Set() };
 
 function foundWhere() {
   if (ui.source === 'folder') return form.project.value ? { root: form.project.value } : null;
@@ -499,21 +499,76 @@ const checkFound = debounce(async () => {
   if (WEB || !$('#app').hidden || found.knocking) return;
   const where = foundWhere();
   let rooms = [];
+  let sessions = [];
   if (where) {
     try {
       const r = await api.discover(where);
       found.fp = r.fp;
       rooms = r.rooms;
+      sessions = r.sessions || [];
     } catch {}
   }
+  // Your own sessions (in another window, or one that did not close cleanly) are not teammates.
+  const me = slugOf(form.name.value);
   found.rooms = rooms;
+  found.sessions = sessions.filter((x) => slugOf(x.name) !== me);
+  tellFound();
   renderFound();
+  const awaited = found.connectTo && found.rooms.find((r) => slugOf(r.name) === slugOf(found.connectTo));
+  if (awaited) {
+    found.connectTo = null;
+    knock(awaited);
+  }
 }, 300);
+
+const slugOf = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+/** The sessions that have no room we can reach yet (the same person in the same room counts once). */
+const sessionsWithoutRoom = () => found.sessions.filter((x) => !found.rooms.some((r) => slugOf(r.name) === slugOf(x.name)));
+const clock = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** A desktop notification the first time each teammate shows up. */
+function tellFound() {
+  for (const r of found.rooms) {
+    const k = `room:${r.name}:${r.room}`;
+    if (found.told.has(k)) continue;
+    found.told.add(k);
+    notify(`${r.name} is working on this project`, `Room ${r.room}. Click to ask to join.`, () => knock(r));
+  }
+  for (const x of sessionsWithoutRoom()) {
+    const k = `session:${x.name}:${x.since}`;
+    if (found.told.has(k)) continue;
+    found.told.add(k);
+    notify(`${x.name} is working on this project`, `Session open since ${clock(x.since)}${x.room ? ` in room ${x.room}` : ''}.`);
+  }
+}
 
 function renderFound() {
   const box = $('#found');
-  box.hidden = !found.rooms.length;
+  const waiting = sessionsWithoutRoom();
+  box.hidden = !found.rooms.length && !waiting.length;
   box.replaceChildren(
+    ...waiting.map((x) => {
+      // The log says they are working, but their room cannot be reached from here yet: offer to
+      // connect, which keeps looking and knocks as soon as the room shows up.
+      const btn = h('button', { type: 'button', class: 'small' }, found.connectTo === x.name ? 'Looking for their room…' : 'Connect');
+      btn.disabled = found.connectTo === x.name;
+      btn.addEventListener('click', () => {
+        found.connectTo = x.name;
+        renderFound();
+        checkFound();
+      });
+      return h(
+        'div',
+        {},
+        h('p', {}, h('strong', {}, x.name), ` has had a session open on this project since ${clock(x.since)}`, x.room ? [' in room ', h('strong', {}, x.room)] : '', '.'),
+        h(
+          'div',
+          { class: 'row' },
+          btn,
+          h('span', { class: 'via' }, found.connectTo === x.name ? `Ask ${x.name} to press "Share online" in their room, or join the same network.` : 'Seen in the repository log')
+        )
+      );
+    }),
     ...found.rooms.map((r) => {
       const btn = h('button', { type: 'button', class: 'small' }, found.knocking === r ? `Waiting for ${r.name}…` : 'Ask to join');
       btn.disabled = !!found.knocking;

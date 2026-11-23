@@ -4,6 +4,22 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { findConfig, toProjectPath, api, teamSummary, projectRules, historyPath } from './config.js';
+import { autoPushEnabled, appendLog, stamp, publishLogInBackground } from './gitsync.js';
+import { openMarker, closeMarker } from '../desktop/presence.js';
+
+/** Writes a line in the person's log (if `entry`) and publishes the log to the git remote in the background. */
+function syncLog(cfg, entry, message) {
+  if (!autoPushEnabled(cfg)) return;
+  const file = historyPath(cfg);
+  try {
+    if (entry) appendLog(cfg.root, file, entry);
+  } catch {
+    return;
+  }
+  publishLogInBackground(cfg.root, [file, 'codev/README.md'], message);
+}
+
+const agentName = (input) => (input.transcript_path ? 'Claude Code' : 'AI');
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
@@ -213,6 +229,16 @@ export async function runHook() {
       case 'SessionStart':
       case 'UserPromptSubmit': {
         if (input.hook_event_name === 'UserPromptSubmit') writeTurn(cfg, input, { edited: [], logged: false });
+        // A new session (not a /clear or a compaction): leave a line in the log and push it, so the
+        // team sees in the repository that this person is working.
+        if (input.hook_event_name === 'SessionStart' && !['clear', 'compact'].includes(input.source)) {
+          const ts = Date.now();
+          syncLog(
+            cfg,
+            `## ${stamp(new Date(ts))} — ${cfg.name} opened a session in room "${cfg.room}" (${agentName(input)})\n${openMarker({ ts, room: cfg.room, name: cfg.name })}`,
+            `codev: ${cfg.name} opened a session`
+          );
+        }
         // The rules go in even if the server cannot be reached.
         let team = null;
         try {
@@ -298,12 +324,18 @@ export async function runHook() {
           });
           return;
         }
+        // The AI wrote its log entry: publish it now, without waiting for anyone to commit.
+        if (turn.logged) syncLog(cfg, null, `codev: ${cfg.name}'s log`);
         writeTurn(cfg, input, { edited: [], logged: false });
         await api(cfg, 'status', { status: 'idle', summary: 'Finished its turn' });
         return;
       }
 
       case 'SessionEnd':
+        {
+          const ts = Date.now();
+          syncLog(cfg, `## ${stamp(new Date(ts))} — ${cfg.name} closed the session\n${closeMarker({ ts })}`, `codev: ${cfg.name} closed a session`);
+        }
         await api(cfg, 'release', {});
         await api(cfg, 'status', { status: 'offline', summary: 'Closed the session and released its files' });
         return;

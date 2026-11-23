@@ -48,6 +48,14 @@ switch (cmd) {
     await runHook();
     break;
   }
+  case 'publish-log': {
+    // (internal) started in the background by the hook: commits and pushes the person's CoDev log.
+    const { publishLog } = await import('./gitsync.js');
+    const argv = process.argv.slice(3);
+    const files = argv.flatMap((a, i) => (a === '--file' && argv[i + 1] ? [argv[i + 1]] : []));
+    if (typeof args.root === 'string' && files.length) await publishLog(args.root, files, String(args.message || 'codev: update log'));
+    break;
+  }
   case 'mcp': {
     const { runMcp } = await import('./mcp.js');
     runMcp();

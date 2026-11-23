@@ -13,6 +13,7 @@ import { projectRules } from '../cli/config.js';
 import { AGENTS, spawnSpec, harnessPatch, ollamaModels } from './agents.js';
 import { ensureCloudflared } from './cloudflared.js';
 import { History } from './history.js';
+import { openSessions } from './presence.js';
 import {
   fingerprint,
   sameProject,
@@ -338,7 +339,15 @@ ipcMain.handle('prepare-repo', async (_e, input) => {
   const full = parseRepo(input);
   if (!full) throw new Error('Write the repository as owner/name or paste its GitHub URL.');
   const dest = repoDest(full);
-  if (fs.existsSync(path.join(dest, '.git'))) return { root: dest, full, cloned: false };
+  if (fs.existsSync(path.join(dest, '.git'))) {
+    // Already here: bring it up to date, so the code and the teammates' logs (codev/history/) are the
+    // latest. Fast-forward only: never a merge, and local work is left as it is (a pull that would
+    // touch it simply fails, and you enter with what you have).
+    const auth = await githubToken();
+    const env = { ...process.env, PATH: await getUserPath(), GIT_TERMINAL_PROMPT: '0', ...gitTokenEnv(auth?.token) };
+    const pulled = await run('git', ['-C', dest, 'pull', '--ff-only', '--quiet'], { env, timeout: 60_000 }).then(() => true, () => false);
+    return { root: dest, full, cloned: false, pulled };
+  }
   fs.mkdirSync(WORKSPACE, { recursive: true });
   const auth = await githubToken();
   const existed = fs.existsSync(dest);
@@ -947,13 +956,59 @@ const knockHooks = {
   },
 };
 
+/* Who has a session open, from the CoDev logs in the repository (presence.js). Read from the local
+   clone after a fetch, or through the GitHub API when the repository is not cloned yet. At most once
+   a minute per project: discovery asks every few seconds. */
+const presenceCache = new Map(); // key -> { at, sessions }
+async function logsFromClone(root) {
+  const git = (args, opts) => run('git', ['-C', root, ...args], opts).then((o) => o.trim());
+  const auth = await githubToken();
+  const env = { ...process.env, PATH: await getUserPath(), GIT_TERMINAL_PROMPT: '0', ...gitTokenEnv(auth?.token) };
+  await git(['fetch', '--quiet'], { env, timeout: 30_000 }).catch(() => {});
+  const up = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).catch(() => null);
+  if (!up) {
+    const dir = path.join(root, 'codev', 'history');
+    const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.md')) : [];
+    return names.map((f) => ({ file: `codev/history/${f}`, text: fs.readFileSync(path.join(dir, f), 'utf8') }));
+  }
+  const files = (await git(['ls-tree', '--name-only', up, 'codev/history/']).catch(() => '')).split('\n').filter((f) => f.endsWith('.md'));
+  return Promise.all(files.map(async (file) => ({ file, text: await git(['show', `${up}:${file}`]).catch(() => '') })));
+}
+async function logsFromGithub(full) {
+  const token = await ghToken();
+  const headers = { accept: 'application/vnd.github+json', 'user-agent': 'CoDev', ...(token && { authorization: `Bearer ${token}` }) };
+  const res = await fetch(`https://api.github.com/repos/${full}/contents/codev/history`, { headers, signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) return [];
+  const list = (await res.json()).filter((f) => f.type === 'file' && f.name.endsWith('.md'));
+  return Promise.all(
+    list.map(async (f) => {
+      const r = await fetch(f.url, { headers: { ...headers, accept: 'application/vnd.github.raw' }, signal: AbortSignal.timeout(10_000) }).catch(() => null);
+      return { file: f.path, text: r?.ok ? await r.text() : '' };
+    })
+  );
+}
+async function presenceOf({ root, repo }) {
+  const key = root || repo;
+  const hit = presenceCache.get(key);
+  if (hit && Date.now() - hit.at < 60_000) return hit.sessions;
+  presenceCache.set(key, { at: Date.now(), sessions: hit?.sessions || [] }); // one read at a time
+  const sessions = openSessions(await (root ? logsFromClone(root) : logsFromGithub(repo)).catch(() => []));
+  presenceCache.set(key, { at: Date.now(), sessions });
+  return sessions;
+}
+
 /** Rooms of teammates on the same project as `root` (a folder) or `repo` (owner/name). */
 ipcMain.handle('discover', async (_e, { root, repo } = {}) => {
   let id = { rootCommit: null, repo: null };
   if (root && fs.existsSync(root)) id = await projectIdentity(root, run);
   if (!id.repo && repo) id.repo = parseRepo(repo);
   const fp = fingerprint(id);
-  if (!fp.r && !fp.g) return { fp, rooms: [] };
+  // Sessions open according to the logs: a folder, or the clone of the repository if there is one.
+  const full = !root && repo ? parseRepo(repo) : null;
+  const clone = full && fs.existsSync(path.join(repoDest(full), '.git')) ? repoDest(full) : null;
+  const where = root && fs.existsSync(root) ? { root } : clone ? { root: clone } : full ? { repo: full } : null;
+  const sessions = where ? await presenceOf(where).catch(() => []) : [];
+  if (!fp.r && !fp.g) return { fp, rooms: [], sessions };
   const found = lanDiscovery().peers().filter((p) => sameProject(fp, p));
   if (id.repo) found.push(...(await listGithubRooms({ repo: id.repo, token: await ghToken() }).catch(() => [])));
   const seen = new Set();
@@ -969,7 +1024,7 @@ ipcMain.handle('discover', async (_e, { root, repo } = {}) => {
       } catch {} // a room that does not answer is closed
     })
   );
-  return { fp, rooms };
+  return { fp, rooms, sessions };
 });
 
 /* ---------- Packaged app: a stable copy of the CLI for the hooks and the MCP server ---------- */
@@ -996,6 +1051,7 @@ function prepareRuntime() {
   if (!fs.existsSync(path.join(dir, 'cli', 'codev.js'))) {
     for (const f of fs.readdirSync(path.join(APP_DIR, 'cli'))) if (f.endsWith('.js')) copy(path.join(APP_DIR, 'cli', f), path.join(dir, 'cli', f));
     copy(path.join(APP_DIR, 'desktop', 'history.js'), path.join(dir, 'desktop', 'history.js'));
+    copy(path.join(APP_DIR, 'desktop', 'presence.js'), path.join(dir, 'desktop', 'presence.js')); // the hook writes its markers
     // The Harness terminal (cli/harness.js) imports the ACP SDK; the packaged app runs the bridge from this folder.
     try {
       copyTree(path.join(APP_DIR, 'node_modules', '@agentclientprotocol', 'sdk'), path.join(dir, 'node_modules', '@agentclientprotocol', 'sdk'));
