@@ -12,6 +12,7 @@
 
 import crypto from 'node:crypto';
 import dgram from 'node:dgram';
+import { execFile } from 'node:child_process';
 
 export const LAN_GROUP = '239.255.43.219';
 export const LAN_PORT = 43219;
@@ -157,7 +158,7 @@ export function parseRoomMessage(message, now = Date.now()) {
   const i = String(message || '').indexOf('{');
   if (i < 0) return null;
   try {
-    const m = JSON.parse(message.slice(i));
+    const m = JSON.parse(message.slice(i).split('\n')[0]); // one line (a .patch adds more after it)
     if (m.app !== 'codev' || m.v !== 1) return null;
     if (typeof m.name !== 'string' || typeof m.room !== 'string' || !/^https:\/\//.test(m.url || '')) return null;
     if (!Number.isFinite(m.updated) || now - m.updated > GITHUB_TTL_MS) return null;
@@ -217,22 +218,64 @@ export async function unpublishGithubRoom({ repo, name, token, api = ghApi }) {
   await api([`repos/${repo}/git/refs/${roomRef(name)}`, '-X', 'DELETE'], null, { token }).catch(() => {});
 }
 
+/*
+ * Reading the rooms must not depend on the GitHub API alone: without a token it allows 60 requests
+ * an hour per IP, shared by everyone behind the same router, and once it answers 403 a teammate's
+ * room is never found ("Looking for their room…" forever). So: a ref list from `git ls-remote` when
+ * the API fails (no limit), and a commit's message from its .patch on github.com, cached by sha
+ * (a commit never changes).
+ */
+const messages = new Map(); // sha -> commit message
+
+/** refs/codev/rooms/* in the repository with plain git: [{ ref, object: { sha } }]. */
+export function lsRemoteRooms(repo) {
+  return new Promise((resolve, reject) =>
+    execFile(
+      'git',
+      ['ls-remote', `https://github.com/${repo}.git`, `refs/${REF_PREFIX}*`],
+      { timeout: 15000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, windowsHide: true },
+      (err, out) =>
+        err
+          ? reject(err)
+          : resolve(
+              String(out)
+                .split('\n')
+                .map((l) => l.trim().split(/\s+/))
+                .filter(([sha, ref]) => sha && ref)
+                .map(([sha, ref]) => ({ ref, object: { sha } }))
+            )
+    )
+  );
+}
+
+/** A commit's message from github.com (not the API, so no rate limit; public repositories only). */
+export async function patchMessage(repo, sha) {
+  const res = await fetch(`https://github.com/${repo}/commit/${sha}.patch`, { headers: { 'user-agent': 'CoDev' }, signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`github.com answered ${res.status}`);
+  return res.text();
+}
+
 /** Rooms published in the repository: [{ name, room, url, updated, via: 'github' }]. */
-export async function listGithubRooms({ repo, token, api = ghApi, now = Date.now() }) {
+export async function listGithubRooms({ repo, token, api = ghApi, now = Date.now(), lsRemote = lsRemoteRooms, patch = patchMessage }) {
   let refs;
   try {
     refs = await api([`repos/${repo}/git/matching-refs/${REF_PREFIX.replace(/\/$/, '')}`], null, { token });
   } catch {
-    return [];
+    refs = await lsRemote(repo).catch(() => []);
   }
   const rooms = await Promise.all(
     (Array.isArray(refs) ? refs : []).slice(0, 20).map(async (r) => {
-      try {
-        const c = await api([`repos/${repo}/git/commits/${r.object.sha}`], null, { token });
-        return parseRoomMessage(c.message, now);
-      } catch {
-        return null;
+      const sha = r?.object?.sha;
+      if (!sha) return null;
+      if (!messages.has(sha)) {
+        const message = await api([`repos/${repo}/git/commits/${sha}`], null, { token })
+          .then((c) => c.message)
+          .catch(() => patch(repo, sha))
+          .catch(() => null);
+        if (message == null) return null;
+        messages.set(sha, message);
       }
+      return parseRoomMessage(messages.get(sha), now);
     })
   );
   return rooms.filter(Boolean);

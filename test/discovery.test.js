@@ -106,6 +106,18 @@ test('publishing, listing and removing a room in the repository', async () => {
   assert.deepEqual(await listGithubRooms({ repo: 'ana/todo', api }), []);
 });
 
+test('a rate-limited GitHub API still finds the rooms, through git and github.com', async () => {
+  const now = Date.now();
+  const limited = async () => {
+    throw new Error('GitHub answered 403: API rate limit exceeded');
+  };
+  const lsRemote = async () => [{ ref: 'refs/codev/rooms/maya', object: { sha: 'abc123' } }];
+  const patch = async (repo, sha) =>
+    `From ${sha} Mon Sep 17 00:00:00 2001\nSubject: [PATCH] CoDev room\n\n${roomMessage({ name: 'Maya', room: 'todo', url: 'https://c.trycloudflare.com', updated: now })}---\n`;
+  const rooms = await listGithubRooms({ repo: 'ana/todo', api: limited, lsRemote, patch, now });
+  assert.deepEqual(rooms.map((r) => r.url), ['https://c.trycloudflare.com']);
+});
+
 test('two apps on the same network hear each other, and never themselves', async (t) => {
   const errors = [];
   const a = startLan({ inst: 'A', onError: (e) => errors.push(e) });

@@ -13,7 +13,9 @@ import { projectRules } from '../cli/config.js';
 import { AGENTS, spawnSpec, harnessPatch, ollamaModels } from './agents.js';
 import { ensureCloudflared } from './cloudflared.js';
 import { History } from './history.js';
-import { openSessions } from './presence.js';
+import { openSessions, needsClose, closeMarker } from './presence.js';
+import { appendLog, stamp } from '../cli/gitsync.js';
+import { historyPath } from '../cli/config.js';
 import {
   fingerprint,
   sameProject,
@@ -687,14 +689,67 @@ ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agen
     env: { ...base, PATH, ...ownGithubEnv(), ...env, ...extraEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'CoDev' },
   });
   ptys.set(id, proc);
+  if ((command || agent) && env?.CODEV_NAME) aiSessions.set(id, { root: env.CODEV_ROOT || cwd, name: env.CODEV_NAME, since: Date.now() });
   const sender = e.sender;
   proc.onData((data) => !sender.isDestroyed() && sender.send('pty-data', id, data));
   proc.onExit(({ exitCode }) => {
     ptys.delete(id);
+    endSession(id, 3000);
     if (!sender.isDestroyed()) sender.send('pty-exit', id, exitCode);
   });
   return true;
 });
+
+/* ---------- The "closed" line when an AI's terminal ends ----------
+   The SessionEnd hook writes it, but not when the terminal is killed (closing its tab or the app; on
+   Windows that ends Claude Code at once) nor for Codex, which has no SessionEnd. Then the team saw a
+   session open for hours. So when an AI terminal ends, the app writes the line itself if the log
+   still says "open" for a session started by that terminal, and publishes it like the hook does. */
+const aiSessions = new Map(); // pty id -> { root, name, since }
+function endSession(id, delay = 0) {
+  const s = aiSessions.get(id);
+  if (!s) return Promise.resolve();
+  aiSessions.delete(id);
+  // Another terminal of the same person on the same project is still working: their session is open.
+  if ([...aiSessions.values()].some((o) => o.root === s.root && o.name === s.name)) return Promise.resolve();
+  // A clean exit runs the hook first: give it a moment to write its own line.
+  return new Promise((r) => setTimeout(r, delay)).then(() => closeLog(s));
+}
+function closeLog({ root, name, since }) {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(root, '.codev.json'), 'utf8'));
+    if (cfg.autoPush === false || process.env.CODEV_AUTOPUSH === '0') return Promise.resolve();
+  } catch {}
+  const file = historyPath({ name });
+  try {
+    const abs = path.join(root, file);
+    if (!needsClose(fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : '', since)) return Promise.resolve();
+    const ts = Date.now();
+    appendLog(root, file, `## ${stamp(new Date(ts))} — ${name} closed the session\n${closeMarker({ ts })}`);
+  } catch {
+    return Promise.resolve();
+  }
+  // The push runs in its own process (as the hook's does), so it never blocks the window and can
+  // finish after the app has quit.
+  return new Promise((resolve) => {
+    try {
+      const r = getRunner();
+      const child = spawn(r.exe, [r.cli, 'publish-log', '--root', root, '--message', `codev: ${name} closed a session`, '--file', file, '--file', 'codev/README.md'], {
+        cwd: root,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        env: { ...cleanEnv(), ...r.env },
+      });
+      child.on('exit', resolve);
+      child.on('error', resolve);
+      child.unref();
+    } catch {
+      resolve();
+    }
+  });
+}
+const endAllSessions = () => Promise.all([...aiSessions.keys()].map((id) => endSession(id)));
 
 ipcMain.on('pty-write', (_e, id, data) => ptys.get(id)?.write(data));
 ipcMain.on('pty-resize', (_e, id, cols, rows) => {
@@ -863,6 +918,7 @@ const guestHooks = {
 // Everything tied to the room stops (terminals, guests, the online link, the announcements); the
 // embedded server keeps running, so creating a room again reuses it.
 ipcMain.handle('leave-room', async () => {
+  endAllSessions();
   for (const p of ptys.values()) {
     try {
       p.kill();
@@ -997,6 +1053,20 @@ async function presenceOf({ root, repo }) {
   return sessions;
 }
 
+/* The rooms listed on GitHub, at most every 30 s per repository (2 min without a token, which gets
+   60 API requests an hour): discovery asks every 8 seconds. */
+const githubRoomsCache = new Map(); // repo -> { at, rooms, ttl }
+async function githubRoomsOf(repo) {
+  const hit = githubRoomsCache.get(repo);
+  if (hit && Date.now() - hit.at < hit.ttl) return hit.rooms;
+  const token = await ghToken();
+  const ttl = token ? 30_000 : 120_000;
+  githubRoomsCache.set(repo, { at: Date.now(), rooms: hit?.rooms || [], ttl }); // one read at a time
+  const rooms = await listGithubRooms({ repo, token }).catch(() => []);
+  githubRoomsCache.set(repo, { at: Date.now(), rooms, ttl });
+  return rooms;
+}
+
 /** Rooms of teammates on the same project as `root` (a folder) or `repo` (owner/name). */
 ipcMain.handle('discover', async (_e, { root, repo } = {}) => {
   let id = { rootCommit: null, repo: null };
@@ -1010,7 +1080,7 @@ ipcMain.handle('discover', async (_e, { root, repo } = {}) => {
   const sessions = where ? await presenceOf(where).catch(() => []) : [];
   if (!fp.r && !fp.g) return { fp, rooms: [], sessions };
   const found = lanDiscovery().peers().filter((p) => sameProject(fp, p));
-  if (id.repo) found.push(...(await listGithubRooms({ repo: id.repo, token: await ghToken() }).catch(() => [])));
+  if (id.repo) found.push(...(await githubRoomsOf(id.repo)));
   const seen = new Set();
   const rooms = [];
   await Promise.all(
@@ -1227,11 +1297,12 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 app.on('window-all-closed', () => {
+  const closing = endAllSessions(); // before the kills, so their exits do not race it
   for (const p of ptys.values()) p.kill();
   tunnel?.proc.kill();
   for (const id of [...guests.keys()]) guestHooks.close(id);
   hostedServer?.close();
   lan?.close();
   // Take the room off the GitHub repository, but never hold the quit for long.
-  Promise.race([unannounceGithub(), new Promise((r) => setTimeout(r, 4000))]).finally(() => app.quit());
+  Promise.race([Promise.all([unannounceGithub(), closing]), new Promise((r) => setTimeout(r, 8000))]).finally(() => app.quit());
 });

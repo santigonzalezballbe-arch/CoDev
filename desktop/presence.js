@@ -19,6 +19,16 @@ export function lastSession(text) {
 }
 
 /**
+ * Whether a log still says "open" for a session that started at `since` (ms) and has ended: its
+ * terminal was closed or killed before Claude Code could write the "closed" line (on Windows a
+ * killed terminal never runs the SessionEnd hook; Codex has no SessionEnd at all).
+ */
+export function needsClose(text, since) {
+  const last = lastSession(text);
+  return !!last && last.state === 'open' && last.ts >= since - 60_000;
+}
+
+/**
  * People with a session open: [{ name, room, since, file }], newest first.
  * `logs` is [{ file: 'codev/history/pau.md', text }].
  */

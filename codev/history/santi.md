@@ -221,3 +221,27 @@ Pendent: comprovar que l'Action de release acaba i instal·lar la 0.4.14.
 
 ## 2026-11-23 16:32 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795447966978 room="CoDev" name="Santi" -->
+
+## 2026-11-23 16:36 — sessions que surten obertes quan ja estan tancades
+Petició: l'app mostrava sessions obertes que no ho eren (ara, el Foix des de les 16:17, sense ser a la sala).
+Causa: el "closed" només l'escriu el hook `SessionEnd`. Quan l'app mata la terminal (tancar la pestanya, sortir de la sala o tancar l'app) Claude Code no sempre arriba a executar-lo (a Windows mai), i Codex no té `SessionEnd`. La sessió quedava "oberta" fins al TTL de 12 h.
+Canvis:
+- `desktop/presence.js`: `needsClose(text, since)`: el log encara diu "open" per a una sessió que ha començat aquesta terminal.
+- `desktop/main.js`: cada terminal d'IA es registra (`aiSessions`); quan acaba, en sortir de la sala o en tancar l'app, si el log encara diu "open" (i no queda cap altra terminal de la mateixa persona al mateix projecte), l'app escriu el "closed" i el publica amb `publish-log` en un procés a part. En tancar l'app espera fins a 8 s.
+- `test/presence.test.js`: test de `needsClose`. `npm test` 57/57.
+Pendent: release nova perquè arribi a les apps (sobretot a la del Foix, a Windows). La sessió fantasma del Foix d'avui desapareixerà quan ell obri i tanqui una sessió o a les 12 h. No provat a l'app real. Sense commit.
+
+## 2026-11-23 16:40 — "Connect" es queda a "Looking for their room…"
+Petició: un altre ordinador veu la sessió oberta, prem "Connect" i no passa res.
+Causa: la sala és publicada i respon (Cloudflare i LAN), però l'app consulta l'API de GitHub cada 8 s (~900 peticions/h). Sense token el límit és 60/h per IP, i aquí ja respon 403: `listGithubRooms` retornava [] en silenci.
+Canvis:
+- `desktop/discovery.js`: si l'API falla, la llista de sales surt de `git ls-remote` (sense límit) i el missatge del commit de `github.com/<repo>/commit/<sha>.patch`; els missatges es guarden per sha. `parseRoomMessage` llegeix només la línia JSON.
+- `desktop/main.js`: `githubRoomsOf` guarda el resultat 30 s (2 min sense token).
+- `test/discovery.test.js`: test amb l'API limitada. Provat en viu amb l'API bloquejada: troba la sala de Santi. `npm test` 58/58.
+Pendent: release nova. Mentrestant, a l'altre ordinador: iniciar sessió amb GitHub a la pantalla d'inici (5000/h) o fer servir l'enllaç d'invitació. Repos privats sense token: el fallback .patch no hi arriba. Sense commit.
+
+
+## 2026-11-23 16:45 — release 0.4.16
+Petició: commit i release dels dos arreglaments anteriors (sessions fantasma i "Looking for their room…").
+Canvis: `package.json` i `package-lock.json` a 0.4.16; commit i etiqueta `v0.4.16` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
+Pendent: comprovar que la release té els instal·ladors; provar-ho a l'app real (sobretot a Windows, amb el Foix).
