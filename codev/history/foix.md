@@ -14,3 +14,9 @@ Pendent: release 0.4.15 perquè arribi a les apps instal·lades (la 0.4.13 encar
 Petició: publicar l'arranjament de l'avís d'actualització.
 Canvis: `package.json` i `package-lock.json` a 0.4.15; commit i etiqueta `v0.4.15` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
 Pendent: comprovar que la release té els instal·ladors; la 0.4.13/0.4.14 instal·lada només veurà l'avís quan l'API no estigui limitada (o instal·lar la 0.4.15 a mà un cop); a partir de la 0.4.15 ja no depèn del límit.
+
+## 2026-11-23 16:30 — Foix closed the session
+<!-- codev:close ts=1795447837133 -->
+
+## 2026-11-23 16:51 — Foix opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795449085107 room="CoDev" name="Foix" -->
