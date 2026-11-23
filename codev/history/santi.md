@@ -133,3 +133,16 @@ Pendent: diversos projectes alhora (finestres) demana separar per finestra l'est
 Petició: publicar la release amb el botó "Leave".
 Canvis: `package.json` i `package-lock.json` a 0.4.10; commit i etiqueta `v0.4.10` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
 Pendent: comprovar que la release té els instal·ladors.
+
+## 2026-11-23 — historial de repositoris
+Petició: un historial de repositoris per poder-los tornar a seleccionar.
+Canvis:
+- `desktop/renderer.js`: es desa a `localStorage` (`codev:recentRepos`, màx. 10) cada repositori amb què s'entra a una sala, amb la sala i la data. El desplegable del repositori mostra primer "Recent" (sala · fa quant) i després "Your repositories"; també funciona sense haver iniciat sessió a GitHub. Botó × per treure'n un. La primera vegada s'omple amb el darrer repositori desat.
+- `desktop/style.css`: capçaleres de grup i botó ×.
+Proves: `npm test` OK; a l'app des del codi (Electron + Playwright): la llista mostra els recents a dalt i el × els esborra.
+Pendent: release nova. Sense commit.
+
+## 2026-11-23 — release 0.4.11
+Petició: publicar l'historial de repositoris.
+Canvis: `package.json` i `package-lock.json` a 0.4.11; commit i etiqueta `v0.4.11` pujats perquè GitHub Actions compili i publiqui els instal·ladors.
+Pendent: comprovar que la release té els instal·ladors.

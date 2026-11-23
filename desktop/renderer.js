@@ -570,28 +570,68 @@ const repoInput = form.repo;
 const repoList = $('#repo-list');
 const repoArrow = $('#repo-arrow');
 
+// Repositories opened before, newest first: shown on top of the list, even without signing in.
+const RECENT_MAX = 10;
+const recentRepos = () => (store.get('codev:recentRepos') || []).filter((x) => x && typeof x.repo === 'string');
+function rememberRepo(repo, room) {
+  const rest = recentRepos().filter((x) => x.repo.toLowerCase() !== repo.toLowerCase());
+  store.set('codev:recentRepos', [{ repo, room, ts: Date.now() }, ...rest].slice(0, RECENT_MAX));
+}
+// First run with this feature: start the history with the last repository used.
+if (!store.get('codev:recentRepos') && saved.source === 'github' && /^[\w.-]+\/[\w.-]+$/.test(saved.repo || '')) rememberRepo(saved.repo, saved.room);
+function forgetRepo(repo) {
+  store.set('codev:recentRepos', recentRepos().filter((x) => x.repo !== repo));
+  renderRepoList();
+}
+const ago = (ts) => {
+  const d = Math.floor((Date.now() - ts) / 86_400_000);
+  return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`;
+};
+
 function renderRepoList() {
   const q = repoInput.value.trim().toLowerCase();
+  const recent = recentRepos();
+  const known = new Map(repos.all.map((x) => [x.nameWithOwner.toLowerCase(), x]));
+  const recentItems = recent.map((r) => ({ ...(known.get(r.repo.toLowerCase()) || { nameWithOwner: r.repo }), recent: r }));
+  const recentSet = new Set(recent.map((r) => r.repo.toLowerCase()));
   // Opened with the arrow, or the text is a repository already chosen: show everything.
-  const exact = repos.all.some((x) => x.nameWithOwner.toLowerCase() === q);
-  repos.shown = (q && !exact ? repos.all.filter((x) => x.nameWithOwner.toLowerCase().includes(q)) : repos.all).slice(0, 200);
+  const exact = recentSet.has(q) || known.has(q);
+  const match = (x) => !q || exact || x.nameWithOwner.toLowerCase().includes(q);
+  const top = recentItems.filter(match);
+  const rest = repos.all.filter((x) => !recentSet.has(x.nameWithOwner.toLowerCase()) && match(x)).slice(0, 200);
+  repos.shown = [...top, ...rest];
   if (repos.active >= repos.shown.length) repos.active = repos.shown.length - 1;
+  const option = (x, i) =>
+    h(
+      'li',
+      { role: 'option', id: `repo-opt-${i}`, 'aria-selected': i === repos.active ? 'true' : 'false', onmousedown: (e) => (e.preventDefault(), pickRepo(x)) },
+      h('span', { class: 'name' }, x.nameWithOwner),
+      x.recent
+        ? h('span', { class: 'desc' }, [x.recent.room ? `Room ${x.recent.room}` : '', ago(x.recent.ts), x.isPrivate ? 'Private' : ''].filter(Boolean).join(' · '))
+        : x.description || x.isPrivate
+          ? h('span', { class: 'desc' }, [x.isPrivate ? 'Private' : '', x.description].filter(Boolean).join(' · '))
+          : null,
+      x.recent
+        ? h('button', {
+            type: 'button', class: 'forget', 'aria-label': `Remove ${x.nameWithOwner} from recent`, title: 'Remove from recent',
+            onmousedown: (e) => (e.preventDefault(), e.stopPropagation(), forgetRepo(x.recent.repo)),
+          }, '×')
+        : null
+    );
+  const head = (t) => h('li', { class: 'group', role: 'presentation' }, t);
   repoList.replaceChildren(
     ...(repos.shown.length
-      ? repos.shown.map((x, i) =>
-          h(
-            'li',
-            { role: 'option', id: `repo-opt-${i}`, 'aria-selected': i === repos.active ? 'true' : 'false', onmousedown: (e) => (e.preventDefault(), pickRepo(x)) },
-            h('span', { class: 'name' }, x.nameWithOwner),
-            x.description || x.isPrivate ? h('span', { class: 'desc' }, [x.isPrivate ? 'Private' : '', x.description].filter(Boolean).join(' · ')) : null
-          )
-        )
-      : [h('li', { class: 'empty' }, repos.all.length ? 'No repository matches.' : 'Sign in with GitHub to see your repositories, or paste a URL.')])
+      ? [
+          ...(top.length ? [head('Recent'), ...top.map((x, i) => option(x, i))] : []),
+          ...(rest.length && top.length ? [head('Your repositories')] : []),
+          ...rest.map((x, i) => option(x, top.length + i)),
+        ]
+      : [h('li', { class: 'empty' }, repos.all.length || recent.length ? 'No repository matches.' : 'Sign in with GitHub to see your repositories, or paste a URL.')])
   );
   repoList.hidden = !repos.open;
   repoInput.setAttribute('aria-expanded', String(repos.open));
   repoArrow.setAttribute('aria-expanded', String(repos.open));
-  if (repos.active >= 0) repoList.children[repos.active]?.scrollIntoView({ block: 'nearest' });
+  if (repos.active >= 0) document.getElementById(`repo-opt-${repos.active}`)?.scrollIntoView({ block: 'nearest' });
   else if (repos.open) repoList.scrollIntoView({ block: 'nearest' }); // the start screen scrolls: bring the list into view
 }
 function openRepoList(open) {
@@ -610,10 +650,10 @@ repoArrow.addEventListener('mousedown', (e) => {
   repoInput.focus();
 });
 repoInput.addEventListener('input', () => {
-  if (document.activeElement === repoInput && !repos.open && repos.all.length) repos.open = true;
+  if (document.activeElement === repoInput && !repos.open && (repos.all.length || recentRepos().length)) repos.open = true;
   renderRepoList();
 });
-repoInput.addEventListener('focus', () => repos.all.length && !repoInput.value && openRepoList(true));
+repoInput.addEventListener('focus', () => (repos.all.length || recentRepos().length) && !repoInput.value && openRepoList(true));
 repoInput.addEventListener('blur', () => openRepoList(false));
 repoInput.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -836,6 +876,7 @@ form.addEventListener('submit', async (e) => {
         body: JSON.stringify({ member: v.name, repo: repoFull }),
       }).catch(() => {});
     }
+    if (repoFull) rememberRepo(repoFull, v.room);
     S.cfg = { root, server, room: v.room, name: v.name, lan, key, publicUrl, host: v.mode === 'host', repo: repoFull, agent: v.agent, model: v.model };
     await document.fonts.load('13px "JetBrains Mono"');
     await document.fonts.load('bold 13px "JetBrains Mono"');

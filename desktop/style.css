@@ -95,6 +95,15 @@ button { cursor: pointer; }
 .combo-list li .name { font: 600 17px/1.3 var(--display); }
 .combo-list li .desc { font: 400 14px/1.35 var(--text); opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .combo-list li[aria-selected='true'], .combo-list li:hover { background: var(--step); }
+.combo-list li { position: relative; }
+.combo-list li.group { cursor: default; padding: 8px 14px 2px; font: 600 12px/1.3 var(--text); letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6; }
+.combo-list li.group:hover { background: none; }
+.combo-list li:has(.forget) { padding-right: 44px; }
+.combo-list .forget {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; border: 0; background: transparent;
+  color: var(--ink); font: 400 20px/1 var(--text); cursor: pointer; opacity: 0.45;
+}
+.combo-list .forget:hover, .combo-list .forget:focus-visible { opacity: 1; }
 .combo-list .empty { cursor: default; opacity: 0.7; font: italic 400 15px/1.4 var(--text); }
 .gh-login { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 6px; }
 .gh-login[hidden] { display: none; }
