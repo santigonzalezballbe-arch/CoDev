@@ -500,3 +500,6 @@ Pendent: prova amb dues persones en xarxes diferents; commit.
 ## 2026-11-24 16:55 — release v0.4.22
 Petició: fer el release. Canvis: versió 0.4.22 a package.json/package-lock.json; commit, tag v0.4.22 i push (GitHub Actions construeix els instal·ladors).
 Pendent: comprovar que l'Action de release acaba bé.
+
+## 2026-11-24 16:36 — Santi closed the session
+<!-- codev:close ts=1795534569010 -->
