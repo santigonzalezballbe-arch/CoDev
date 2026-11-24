@@ -514,3 +514,6 @@ Pendent: comprovar que l'Action de release acaba bé.
 Petició: el release v0.4.22 no es pujava a GitHub (només el tag).
 Canvis: `.github/workflows/release.yml` — el job de macOS no va obtenir runner i es va cancel·lar, i `release` es saltava. Ara `release` corre amb `always()` (publica els instal·ladors disponibles) i els builds tenen `timeout-minutes: 30`. Rellançat el run 45426860966.
 Pendent: comprovar que v0.4.22 apareix a Releases.
+
+## 2026-11-24 17:08 — Santi closed the session
+<!-- codev:close ts=1795536487446 -->
