@@ -441,8 +441,21 @@ Pendent: revisió del Santi; sense commit.
 ## 2026-11-24 00:58 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795478288374 room="CoDev" name="Santi" -->
 
-## 2026-11-24 15:10 — vista del navegador al mòbil (release 0.4.21)
-Petició (des del bot de Telegram): que la vista del navegador sigui responsive al mòbil.
-Canvis: `desktop/index.html` porta la meta `viewport` (sense ella el mòbil pintava la pàgina a 980 px i l'encongia). `desktop/renderer.js`: fins a 700 px, la vista per defecte és la conversa (si no se n'ha triat cap), cada finestra ocupa gairebé tota la pantalla i el terminal d'un company manté una mida mínima llegible (zoom 0,72, ~9,4 px de lletra) i es desplaça de costat en lloc d'encongir 100 columnes en 360 px. `desktop/style.css`: barra d'eines d'una sola línia que es desplaça de costat, amb Xat i "Open my Claude Code" primer (s'amaguen el selector general de vista i "Get the app"); filtres de l'historial en una línia; tots els controls de 44 px d'alçada en pantalles tàctils. Escriptori i tauleta, sense canvis.
-Provat amb una sala simulada a Chromium en 390, 820 i 1440 px: res no surt pels costats ni queden controls petits al mòbil; 65 tests en verd. Versió 0.4.21.
-Pendent: comprovar-ho en un mòbil real (iOS Safari i Android Chrome).
+## 2026-11-24 01:10 — guió edit "low cortisol" amb CoDev
+Petició: guió per copiar el TikTok de referència (WhatsApp Video 2026-11-24 at 00.56.36.mp4: "navidad con novia" vs "con mi bro" amb mesurador de cortisol) amb la mateixa cançó, però sobre CoDev.
+Canvis (fora del repo): `~/CoDev/codev-promo-video/GUION-LOW-CORTISOL.md` (estructura, temps sincronitzats amb la lletra i el canvi al segon 14,5).
+Pendent: el Santi confirma el guió; després es fa la composició a Remotion.
+
+## 2026-11-24 01:55 — vídeo "low cortisol" amb CoDev
+Petició: fer l'edit del meme del cortisol (WhatsApp Video 2026-11-24 at 00.56.36.mp4) amb CoDev, amb la mateixa cançó; després: mesurador = la imatge que va passar el Santi (cortisol-level-meter...webp, fons blanc, tal qual), ninots de les 11 IA de l'app enfadats/barallant-se a la part 1 i contents/xerrant/ballant a la part 2, i treure el núvol amb POW/BAM.
+Canvis (fora del repo, a `~/CoDev/codev-promo-video/`): `src/cortisol/Cortisol.tsx` (composicions CoDevCortisol i CoDevCortisolMuted, 1080×1920 60 fps, talls de l'original, flaix a 14,5 s), `src/cortisol/bots.tsx` (ninots amb estats d'ànim, mateixos dibuixos que l'app; les IA sense dibuix propi fan servir el robot de Claude com a l'app), `public/cortisol-high.png` i `public/cortisol-low.png` (retalls de la imatge del Santi), `public/cortisol-audio.m4a`, `src/orchestra/kit.tsx` exporta BODIES. Renders: `out/CoDev-cortisol-CON-AUDIO.mp4` i `out/CoDev-cortisol-SIN-AUDIO.mp4`.
+Pendent: revisió del Santi; sense commit.
+
+## 2026-11-24 15:06 — Santi closed the session
+<!-- codev:close ts=1795529183944 -->
+
+## 2026-11-24 15:06 — Santi closed the session
+<!-- codev:close ts=1795529186158 -->
+
+## 2026-11-24 15:29 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795530551819 room="CoDev" name="Santi" -->
