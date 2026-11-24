@@ -440,3 +440,9 @@ Pendent: revisió del Santi; sense commit.
 
 ## 2026-11-24 00:58 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795478288374 room="CoDev" name="Santi" -->
+
+## 2026-11-24 15:10 — vista del navegador al mòbil (release 0.4.21)
+Petició (des del bot de Telegram): que la vista del navegador sigui responsive al mòbil.
+Canvis: `desktop/index.html` porta la meta `viewport` (sense ella el mòbil pintava la pàgina a 980 px i l'encongia). `desktop/renderer.js`: fins a 700 px, la vista per defecte és la conversa (si no se n'ha triat cap), cada finestra ocupa gairebé tota la pantalla i el terminal d'un company manté una mida mínima llegible (zoom 0,72, ~9,4 px de lletra) i es desplaça de costat en lloc d'encongir 100 columnes en 360 px. `desktop/style.css`: barra d'eines d'una sola línia que es desplaça de costat, amb Xat i "Open my Claude Code" primer (s'amaguen el selector general de vista i "Get the app"); filtres de l'historial en una línia; tots els controls de 44 px d'alçada en pantalles tàctils. Escriptori i tauleta, sense canvis.
+Provat amb una sala simulada a Chromium en 390, 820 i 1440 px: res no surt pels costats ni queden controls petits al mòbil; 65 tests en verd. Versió 0.4.21.
+Pendent: comprovar-ho en un mòbil real (iOS Safari i Android Chrome).

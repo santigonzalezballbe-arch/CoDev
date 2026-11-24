@@ -566,3 +566,48 @@ a.bar-btn { text-decoration: none; display: inline-block; }
   .head-side { gap: 4px; }
   .head-side button { font-size: 13px; padding: 6px 8px; }
 }
+
+/* ================= Phone (browser view on a mobile) ================= */
+@media (max-width: 700px) {
+  /* Tool bar: one line that scrolls sideways instead of two or three lines that eat the screen. */
+  .tools { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; padding: 6px 8px; gap: 2px; }
+  .tools::-webkit-scrollbar { display: none; }
+  .tools .bar-gap, .tools #get-app { display: none; } /* the desktop app cannot be installed on a phone */
+  /* The main actions first, so they are on screen without scrolling; the rest come after. */
+  .tools > * { order: 3; }
+  /* Each window has its own Terminal/Conversation button: the global switch would not fit here. */
+  .tools .view-switch { display: none; }
+  .tools #chat-btn { order: 1; }
+  .tools #add-claude { order: 2; margin-left: 0; }
+  /* A fade on the right edge says there is more to scroll. */
+  .tools { mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+  .context { gap: 10px; padding: 0 10px; }
+  .context .wordmark { display: none; }
+  #room-name { max-width: 14ch; }
+
+  /* A teammate's terminal below its readable size: it scrolls (see rescale() in renderer.js). */
+  .term-wrap.scrolls { overflow: auto; -webkit-overflow-scrolling: touch; padding: 6px; }
+  .pane.view-convo .term-wrap.scrolls { overflow: hidden; } /* its scrollbar would show under the conversation */
+
+  /* History filters: one sideways line; Close stays at hand. */
+  .history-bar { gap: 8px; }
+  .history-title { order: -2; }
+  #history-close { order: -1; margin-left: auto; }
+  .history-bar input { flex: 1 1 100%; min-width: 0; order: 1; }
+  .history-bar select { order: 2; }
+  #history-kinds { order: 3; flex: 1 1 100%; display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  #history-kinds::-webkit-scrollbar { display: none; }
+  #history-kinds .opt { flex: none; }
+
+}
+
+/* Fingers, not a mouse pointer: every control at least 44px tall (WCAG target size). */
+@media (pointer: coarse), (max-width: 700px) {
+  .tool-btn, .bar-btn, .view-switch button, .icon-btn, .head-side button, .leave, .chat-close, .chat-tab,
+  .history .opt, .history-bar select, .open-app, .get-app, .about {
+    min-height: 44px; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .view-switch { padding: 0; }
+  .entry summary, .convo summary { padding: 12px 0; }
+  .to-chips button, .nc-chips button { min-height: 44px; }
+}

@@ -1676,6 +1676,10 @@ function makePane({ id, member, local, title, agent = 'claude', model = '', crea
 }
 
 const PANE_MIN_H = 300;
+/** Phone-sized screen (browser view on a mobile): one window per screen, readable terminals. */
+const PHONE = window.matchMedia('(max-width: 700px)');
+/** Smallest scale of a teammate's terminal on a phone: below it the text cannot be read, so it scrolls instead. */
+const PHONE_MIN_SCALE = 0.72;
 function layout() {
   const panes = [...S.panes.values()].sort((a, b) => (a.local === b.local ? 0 : a.local ? -1 : 1));
   const grid = $('#panes');
@@ -1688,7 +1692,9 @@ function layout() {
   const fit = Math.max(1, Math.floor((grid.clientWidth || window.innerWidth) / 420));
   const cols = Math.max(1, Math.min(n <= 3 ? n : Math.ceil(n / 2), fit));
   grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-  grid.style.gridTemplateRows = `repeat(${Math.ceil(n / cols)}, minmax(${PANE_MIN_H}px, 1fr))`;
+  // On a phone each window takes most of the screen and the list scrolls: two half-screens are too small.
+  const rowMin = PHONE.matches ? Math.max(PANE_MIN_H, Math.round(window.innerHeight * 0.72)) : PANE_MIN_H;
+  grid.style.gridTemplateRows = `repeat(${Math.ceil(n / cols)}, minmax(${rowMin}px, 1fr))`;
   renderHeads();
   updateNoteTargets();
 }
@@ -1991,7 +1997,12 @@ function rescale(p) {
   const hgt = p.wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
   // On big screens a replica may grow well past its original size, so it fills its window.
   const s = Math.min(w / screen.offsetWidth, hgt / screen.offsetHeight, 3);
-  p.host.style.transform = `scale(${s})`;
+  // On a phone, fitting 100 columns in 360px gives unreadable text: keep a minimum size and let the
+  // window scroll. `zoom` (unlike transform) changes the layout size, so the scrollbars are right.
+  const scroll = PHONE.matches && s < PHONE_MIN_SCALE;
+  p.wrap.classList.toggle('scrolls', scroll);
+  p.host.style.transform = scroll ? '' : `scale(${s})`;
+  p.host.style.zoom = scroll ? String(PHONE_MIN_SCALE) : '';
 }
 
 /* ---------- History ---------- */
@@ -2125,7 +2136,10 @@ function diffBlock({ old = '', new: neu = '' }) {
 /* ---------- Conversation view: each Claude as a chat ---------- */
 // The same session, read like a chat: prompts, Claude's replies (from its transcript, sent by the
 // hooks), what it did, and when it needs you. Your own windows have a box to write prompts.
-S.view = store.get('codev:view') === 'convo' ? 'convo' : 'terminal';
+// On a phone a whole terminal only fits at an unreadable size: the conversation is the default there,
+// unless the person has already chosen a view.
+S.view = store.get('codev:view') || (PHONE.matches ? 'convo' : 'terminal');
+if (S.view !== 'convo') S.view = 'terminal';
 
 const eventKey = (e) => `${e.ts}|${e.member}|${e.kind}|${String(e.summary || '').slice(0, 80)}`;
 const seenEvents = new Set();
