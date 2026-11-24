@@ -486,3 +486,17 @@ Pendent: revisió del Santi; sense commit.
 
 ## 2026-11-24 16:02 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795532566781 room="CoDev" name="Santi" -->
+
+## 2026-11-24 16:40 — revisió: missatges i «Ask to join»
+Petició: garantir que tothom pugui enviar missatges i arreglar que l'amfitrió no rep la petició d'unir-se a la sala.
+Canvis: `cli/codev.js`, `cli/config.js`, `cli/hook.js`, `cli/mcp.js` (ordres `codev note`/`codev chat` i regles per a les IA sense eines MCP); `desktop/agents.js`, `desktop/main.js`, `desktop/renderer.js` (MCP en obrir cada Claude, PATH real). Causa de la sala: es publicava a GitHub només amb l'API (cal token); sense login, el visitant veia la sessió als logs però mai la sala. Ara, si l'API falla, `main.js` la publica amb `git push` de `refs/codev/rooms/<nom>` (mateixes credencials que els logs) i l'esborra en tancar.
+Pendent: prova real amb dues persones en xarxes diferents; sense commit.
+
+## 2026-11-24 16:45 — publicació de la sala amb git
+Petició: continuar arreglant «Ask to join».
+Canvis: desktop/main.js — `publishRoomWithGit`/`gitInRoot` (fallback amb `git push` quan l'API de GitHub falla) i `unannounceGithub` esborra la ref amb git; imports `roomRef`, `roomMessage`.
+Pendent: prova amb dues persones en xarxes diferents; commit.
+
+## 2026-11-24 16:55 — release v0.4.22
+Petició: fer el release. Canvis: versió 0.4.22 a package.json/package-lock.json; commit, tag v0.4.22 i push (GitHub Actions construeix els instal·ladors).
+Pendent: comprovar que l'Action de release acaba bé.

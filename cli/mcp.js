@@ -71,7 +71,7 @@ const TOOLS = [
   },
 ];
 
-async function callTool(cfg, name, args = {}) {
+export async function callTool(cfg, name, args = {}) {
   if (!cfg) return 'CoDev is not set up in this project. Run `codev init` at the project root.';
   const files = (args.files || []).map((f) => toProjectPath(cfg, f) || f);
   switch (name) {

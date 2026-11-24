@@ -161,7 +161,7 @@ const toml = (v) => JSON.stringify(v); // a JSON string is a valid TOML basic st
  *   rules:  CoDev's instructions for the AI
  * Returns { command, args, env, unset } where `unset` lists inherited variables to drop.
  */
-export function spawnSpec(agentId, { model, key, codev = {}, runner, rules = '' } = {}) {
+export function spawnSpec(agentId, { model, key, codev = {}, runner, rules = '', mcpConfig = null } = {}) {
   const agent = AGENTS[agentId] || AGENTS.claude;
   if (agent.engine === 'harness') throw new Error(`${agent.label} runs in the DeepSeek Harness.`);
   // Claude Code with another endpoint: an inherited ANTHROPIC_API_KEY would take over, so drop it.
@@ -180,7 +180,9 @@ export function spawnSpec(agentId, { model, key, codev = {}, runner, rules = '' 
       return { command: 'codex', args, env: {}, unset: [] };
     }
     default:
-      return { command: 'claude', args: [], env: {}, unset: [] };
+      // The CoDev MCP server given at launch too: registering it with `claude mcp add` can fail
+      // (Claude Code not installed yet, not on the app's PATH), and then the AI could not talk to the room.
+      return { command: 'claude', args: mcpConfig ? ['--mcp-config', mcpConfig] : [], env: {}, unset: [] };
   }
 }
 

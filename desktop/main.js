@@ -9,7 +9,7 @@ import { execFile, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { startServer } from '../server/server.js';
 import { setupProject, useRunner, getRunner, installCodexHooks } from '../cli/init.js';
-import { projectRules } from '../cli/config.js';
+import { projectRules, cliCommand } from '../cli/config.js';
 import { AGENTS, spawnSpec, harnessPatch, ollamaModels, apiModels } from './agents.js';
 import { ensureCloudflared } from './cloudflared.js';
 import { History } from './history.js';
@@ -25,6 +25,8 @@ import {
   publishGithubRoom,
   unpublishGithubRoom,
   listGithubRooms,
+  roomRef,
+  roomMessage,
 } from './discovery.js';
 import { checkLatest, installKind, install as installUpdate, RELEASES_PAGE } from './updater.js';
 
@@ -451,7 +453,22 @@ ipcMain.handle('prepare-repo', async (_e, input) => {
   return { root: dest, full, cloned: true };
 });
 
-ipcMain.handle('setup-project', (_e, opts) => setupProject(opts));
+// With the user's PATH: an app opened from the desktop menu or the Dock does not have ~/.local/bin
+// or npm's folder in its own, and then `claude mcp add` failed and that person's AI had no codev tools.
+ipcMain.handle('setup-project', async (_e, opts) => setupProject({ ...opts, env: { ...cleanEnv(), PATH: await getUserPath() } }));
+
+/**
+ * The CoDev MCP server for one Claude Code terminal, as a file for `claude --mcp-config`. It holds
+ * the room key, so it lives in the app's data folder, readable by this user only.
+ */
+function codevMcpConfig(name, codevEnv) {
+  const runner = getRunner();
+  const file = path.join(app.getPath('userData'), 'mcp', `${String(name).replace(/[^\w.-]/g, '_')}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const server = { type: 'stdio', command: runner.exe, args: [runner.cli, 'mcp'], env: { ...runner.env, ...codevEnv } };
+  fs.writeFileSync(file, JSON.stringify({ mcpServers: { codev: server } }, null, 2), { mode: 0o600 });
+  return file;
+}
 ipcMain.handle('copy', (_e, text) => clipboard.writeText(text));
 ipcMain.handle('focus-window', (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
@@ -712,7 +729,7 @@ ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agen
     const key = a.needsKey ? getKey(agentId) : null;
     if (a.needsKey && !key) throw new Error(`No ${a.label} API key saved. Add it on the start screen and try again.`);
     const codevEnv = Object.fromEntries(Object.entries(env || {}).filter(([k]) => k.startsWith('CODEV_')));
-    const rules = projectRules({ name: env?.CODEV_NAME || 'You', room: env?.CODEV_ROOM || '' });
+    const rules = projectRules({ name: env?.CODEV_NAME || 'You', room: env?.CODEV_ROOM || '' }, { cli: cliCommand(getRunner()) });
     if (a.engine === 'harness') {
       const dsh = findDsh(PATH);
       if (!dsh) throw new Error(`The DeepSeek Harness is not installed. Install it with: ${a.install}`);
@@ -760,6 +777,7 @@ ipcMain.handle('pty-create', async (e, { id, cwd, cols, rows, env, command, agen
         codev: codevEnv,
         runner: getRunner(),
         rules,
+        mcpConfig: codevEnv.CODEV_ROOM ? codevMcpConfig(ptyKey(e.sender, id), codevEnv) : null,
       });
       file = findCommand(PATH, spec.command);
       if (!file && spec.command === 'claude') {
@@ -1006,7 +1024,7 @@ const guestHooks = {
       };
       const env = { ...cleanEnv(), PATH, ...codevEnv, CLAUDE_CONFIG_DIR: configDir };
       await setupProject({ root: dir, server: codevEnv.CODEV_SERVER, room: hostCtx.room, name: req.member, key: roomKey, env });
-      const proc = pty.spawn(claude, [], {
+      const proc = pty.spawn(claude, ['--mcp-config', codevMcpConfig(`guest-${req.id}`, codevEnv)], {
         name: 'xterm-256color',
         cols: req.cols,
         rows: req.rows,
@@ -1115,6 +1133,15 @@ async function announceRoom(c) {
       await publishGithubRoom({ repo, name: hostCtx.name, room: hostCtx.room, url: tunnel.url, token });
       c.ghPublished = { repo, name: hostCtx.name };
     } catch (err) {
+      // No token (or no API write access): the same git credentials that push the session logs
+      // can push the room's ref. Without this, teammates see the session but never the room.
+      try {
+        await publishRoomWithGit(hostCtx.root, { name: hostCtx.name, room: hostCtx.room, url: tunnel.url });
+        c.ghPublished = { repo, name: hostCtx.name, root: hostCtx.root };
+        return;
+      } catch (gitErr) {
+        console.warn('CoDev: git push of the room failed too:', gitErr.stderr || gitErr.message);
+      }
       console.warn(`CoDev: could not list the room in ${repo} on GitHub:`, err.message);
       // Tell the host: otherwise teammates on other networks just never see the room.
       const why = token ? `you need write access to ${repo} (${err.message})` : 'sign in with GitHub on the start screen';
@@ -1131,7 +1158,24 @@ async function unannounceGithub(c) {
   c.ghTimer = null;
   const p = c.ghPublished;
   c.ghPublished = null;
-  if (p) await unpublishGithubRoom({ ...p, token: await ghToken() });
+  if (!p) return;
+  if (p.root) return gitInRoot(p.root, ['push', '--quiet', 'origin', '--delete', `refs/${roomRef(p.name)}`]).catch(() => {});
+  await unpublishGithubRoom({ ...p, token: await ghToken() });
+}
+
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+async function gitInRoot(root, args) {
+  const auth = await githubToken().catch(() => null);
+  const env = { ...process.env, PATH: await getUserPath(), GIT_TERMINAL_PROMPT: '0', ...gitTokenEnv(auth?.token) };
+  return (await run('git', ['-C', root, ...args], { env, timeout: 30_000 })).trim();
+}
+/** The room as a commit on refs/codev/rooms/<name>, pushed with git (listGithubRooms reads its message). */
+async function publishRoomWithGit(root, room) {
+  const sha = await gitInRoot(root, [
+    '-c', 'user.name=CoDev', '-c', 'user.email=codev@localhost',
+    'commit-tree', EMPTY_TREE, '-m', roomMessage(room),
+  ]);
+  await gitInRoot(root, ['push', '--quiet', '--force', 'origin', `${sha}:refs/${roomRef(room.name)}`]);
 }
 
 const knockHooks = {

@@ -60,8 +60,25 @@ const slug = (s) => String(s).toLowerCase().normalize('NFD').replace(/[^a-z0-9]+
 /** Each person's AI keeps its own log in the repository: no locking and no merge conflicts between them. */
 export const historyPath = (cfg) => `codev/history/${slug(cfg.name)}.md`;
 
+/**
+ * How to run this CoDev CLI from a shell, for the AIs. From the process running now: the hooks and
+ * the MCP server run it as `node cli/codev.js`, or the packaged app's binary as Node (an AppImage
+ * through its own file, which does not move).
+ */
+export function cliCommand({ exe = process.env.APPIMAGE || process.execPath, cli = process.argv[1], env = process.env.ELECTRON_RUN_AS_NODE ? { ELECTRON_RUN_AS_NODE: '1' } : {} } = {}) {
+  const q = (s) => `"${String(s).replace(/\\/g, '/')}"`;
+  return `${Object.entries(env).map(([k, v]) => `${k}=${v} `).join('')}${q(exe)} ${q(cli)}`;
+}
+
 /** The rules CoDev gives every AI at the start of a session and with every prompt. */
-export function projectRules(cfg) {
+export function projectRules(cfg, { cli = null } = {}) {
+  const talk =
+    "Talking to teammates' AIs: use the codev MCP tools codev_send_note (a message to one teammate's AI, or to all) and codev_read_chat. " +
+    'In Claude Code they may be listed as deferred tools: load them first with ToolSearch, query "select:mcp__codev__codev_send_note,mcp__codev__codev_read_chat,mcp__codev__codev_team_status". ' +
+    (cli
+      ? `If they are not available at all, use the shell instead, it does the same: ${cli} note --to "<teammate>" "<message>" (without --to it goes to every AI), and ${cli} chat to read the chat. `
+      : '') +
+    'Never tell the user you cannot send a message before trying both.';
   return [
     `[CoDev] ${cfg.name} works on this project together with teammates through CoDev (room "${cfg.room}").`,
     `Project log: after any task that changes files, append an entry at the end of ${historyPath(cfg)} (create the file and its folders if needed). ` +
@@ -70,6 +87,7 @@ export function projectRules(cfg) {
       'Only edit your own file in codev/history/.',
     'Before starting a task, read your teammates\' logs in codev/history/ (if any) to know what was done and why. ' +
       'For more, the codev MCP server has codev_read_chat (the AIs\' chat) and codev_search_history (every prompt, change, command and message, searchable).',
+    talk,
   ].join('\n');
 }
 

@@ -89,6 +89,12 @@ if (!WEB) {
   api.onGuestRequest((req) => {
     guestQueue.push(req);
     showNextRequest();
+    // The host may be in another program: the bar alone goes unseen and the request expires.
+    notify(
+      req.kind === 'knock' ? `${req.member} wants to join your room` : `${req.member} wants a Claude Code on this computer`,
+      'Click to open CoDev and allow it or not.',
+      () => {}
+    );
   });
   api.onGuestRequestExpired((reqId) => {
     const i = guestQueue.findIndex((r) => r.reqId === reqId);

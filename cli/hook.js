@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { findConfig, toProjectPath, api, teamSummary, projectRules, historyPath } from './config.js';
+import { findConfig, toProjectPath, api, teamSummary, projectRules, historyPath, cliCommand } from './config.js';
 import { autoPushEnabled, appendLog, stamp, publishLogInBackground } from './gitsync.js';
 import { openMarker, closeMarker } from '../desktop/presence.js';
 import { agentPid, registerSession, unregisterSession, closeDeadSessions } from './sessions.js';
@@ -256,7 +256,7 @@ export async function runHook() {
           }
           team = teamSummary(cfg, await api(cfg, 'state'));
         } catch {}
-        const context = [projectRules(cfg), team].filter(Boolean).join('\n\n');
+        const context = [projectRules(cfg, { cli: cliCommand() }), team].filter(Boolean).join('\n\n');
         output({ hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: context } });
         return;
       }
