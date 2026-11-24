@@ -509,3 +509,8 @@ Pendent: comprovar que l'Action de release acaba bé.
 
 ## 2026-11-24 17:03 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795536193592 room="CoDev" name="Santi" -->
+
+## 2026-11-24 17:10
+Petició: el release v0.4.22 no es pujava a GitHub (només el tag).
+Canvis: `.github/workflows/release.yml` — el job de macOS no va obtenir runner i es va cancel·lar, i `release` es saltava. Ara `release` corre amb `always()` (publica els instal·ladors disponibles) i els builds tenen `timeout-minutes: 30`. Rellançat el run 45426860966.
+Pendent: comprovar que v0.4.22 apareix a Releases.
