@@ -483,3 +483,6 @@ Pendent: revisió del Santi; sense commit.
 
 ## 2026-11-24 15:55 — Santi closed the session
 <!-- codev:close ts=1795532102401 -->
+
+## 2026-11-24 16:02 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795532566781 room="CoDev" name="Santi" -->
