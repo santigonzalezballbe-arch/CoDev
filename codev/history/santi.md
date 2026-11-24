@@ -506,3 +506,6 @@ Pendent: comprovar que l'Action de release acaba bé.
 
 ## 2026-11-24 16:36 — Santi closed the session
 <!-- codev:close ts=1795534571555 -->
+
+## 2026-11-24 17:03 — Santi opened a session in room "CoDev" (Claude Code)
+<!-- codev:open ts=1795536193592 room="CoDev" name="Santi" -->
