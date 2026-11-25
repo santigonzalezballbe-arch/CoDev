@@ -1261,10 +1261,12 @@ ipcMain.handle('discover', async (_e, { root, repo } = {}) => {
   const full = !root && repo ? parseRepo(repo) : null;
   const clone = full && fs.existsSync(path.join(repoDest(full), '.git')) ? repoDest(full) : null;
   const where = root && fs.existsSync(root) ? { root } : clone ? { root: clone } : full ? { repo: full } : null;
-  const sessions = where ? await presenceOf(where).catch(() => []) : [];
-  if (!fp.r && !fp.g) return { fp, rooms: [], sessions };
+  // Presence can wait on a `git fetch` (up to 30 s): do not hold the room listing behind it.
+  const presence = where ? presenceOf(where).catch(() => []) : Promise.resolve([]);
+  if (!fp.r && !fp.g) return { fp, rooms: [], sessions: await presence };
   const found = lanDiscovery().peers().filter((p) => sameProject(fp, p));
-  if (id.repo) found.push(...(await githubRoomsOf(id.repo)));
+  const [sessions, ghRooms] = await Promise.all([presence, id.repo ? githubRoomsOf(id.repo) : []]);
+  found.push(...ghRooms);
   const seen = new Set();
   const rooms = [];
   await Promise.all(

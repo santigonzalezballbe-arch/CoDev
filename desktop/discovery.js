@@ -13,6 +13,7 @@
 import crypto from 'node:crypto';
 import dgram from 'node:dgram';
 import { execFile } from 'node:child_process';
+import os from 'node:os';
 
 export const LAN_GROUP = '239.255.43.219';
 export const LAN_PORT = 43219;
@@ -79,6 +80,19 @@ export function decodeAnnouncement(buf) {
 }
 
 /**
+ * The computer's IPv4 addresses on real networks. Self-assigned ones (169.254.x.x: an adapter with
+ * nothing behind it, or a virtual one) are left out unless there is nothing else.
+ */
+export function lanAddresses(ifaces = os.networkInterfaces()) {
+  const all = Object.values(ifaces)
+    .flat()
+    .filter((i) => i && (i.family === 'IPv4' || i.family === 4) && !i.internal)
+    .map((i) => i.address);
+  const real = all.filter((a) => !a.startsWith('169.254.'));
+  return real.length ? real : all;
+}
+
+/**
  * Listens for rooms on the local network, and announces ours while we host one.
  * `inst` identifies this app so it never finds itself.
  */
@@ -101,20 +115,67 @@ export function startLan({ inst, onError = () => {} } = {}) {
     if (!a || a.inst === inst || a.inst.startsWith(`${inst}.`)) return; // our own rooms
     peers.set(a.inst, { ...a, address: rinfo.address, seen: Date.now() });
   });
-  socket.bind(LAN_PORT, () => {
-    try {
-      socket.addMembership(LAN_GROUP);
-      socket.setMulticastTTL(1);
-    } catch (err) {
-      onError(err);
+  // A computer often has several network adapters (VPNs, Hyper-V, WSL, Bluetooth...). Left to itself,
+  // the system joins and sends on just one of them, often a virtual one, and teammates on the real
+  // network never hear us. So we listen and announce on every adapter, one sending socket each.
+  const joined = new Set();
+  const senders = new Map(); // address -> socket bound to it
+  let bound = false;
+  const refreshInterfaces = () => {
+    if (!bound) return;
+    const addrs = lanAddresses();
+    for (const addr of addrs) {
+      if (joined.has(addr)) continue;
+      try {
+        socket.addMembership(LAN_GROUP, addr);
+        joined.add(addr);
+      } catch {} // an adapter without multicast
     }
-  });
-  const send = () => {
-    for (const [slot, info] of announcing) {
-      const msg = encodeAnnouncement({ inst: slot === '' ? inst : `${inst}.${slot}`, ...info });
-      socket.send(msg, 0, msg.length, LAN_PORT, LAN_GROUP, () => {});
+    if (!joined.size && !joined.has('default')) {
+      try {
+        socket.addMembership(LAN_GROUP);
+        joined.add('default');
+      } catch (err) {
+        onError(err);
+      }
+    }
+    for (const [addr, s] of senders) {
+      if (addrs.includes(addr)) continue;
+      senders.delete(addr);
+      try { s.close(); } catch {}
+    }
+    for (const addr of addrs) {
+      if (senders.has(addr)) continue;
+      const s = dgram.createSocket({ type: 'udp4' });
+      s.on('error', () => { senders.delete(addr); try { s.close(); } catch {} });
+      senders.set(addr, s);
+      s.bind({ address: addr, port: 0 }, () => {
+        try {
+          s.setMulticastInterface(addr);
+          s.setMulticastTTL(1);
+          s.ready = true;
+          send();
+        } catch {}
+      });
     }
   };
+  socket.bind(LAN_PORT, () => {
+    bound = true;
+    try {
+      socket.setMulticastTTL(1);
+    } catch {}
+    refreshInterfaces();
+  });
+  const send = () => {
+    const ready = [...senders.values()].filter((s) => s.ready);
+    const out = ready.length ? ready : [socket];
+    for (const [slot, info] of announcing) {
+      const msg = encodeAnnouncement({ inst: slot === '' ? inst : `${inst}.${slot}`, ...info });
+      for (const s of out) s.send(msg, 0, msg.length, LAN_PORT, LAN_GROUP, () => {});
+    }
+  };
+  const ifTimer = setInterval(refreshInterfaces, 15000); // Wi-Fi joins, a VPN goes up...
+  ifTimer.unref?.();
   return {
     /** Starts (or updates) announcing { name, room, port, r, g }; `slot` tells apart the rooms of one app. */
     announce(info, slot = '') {
@@ -141,6 +202,10 @@ export function startLan({ inst, onError = () => {} } = {}) {
     },
     close() {
       clearInterval(timer);
+      clearInterval(ifTimer);
+      for (const s of senders.values()) {
+        try { s.close(); } catch {}
+      }
       try {
         socket.close();
       } catch {}

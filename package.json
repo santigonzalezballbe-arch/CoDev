@@ -1,6 +1,6 @@
 {
   "name": "codev",
-  "version": "0.4.22",
+  "version": "0.4.23",
   "description": "Code as a team with AI without stepping on each other: Claude Code terminals side by side, live, with file locking between agents.",
   "type": "module",
   "bin": {

@@ -214,3 +214,10 @@ test('knocking: servers that do not take requests say so, and the queue is limit
   waiting.forEach((resolve) => resolve(false));
   await Promise.all(pending);
 });
+
+test('lanAddresses leaves out self-assigned adapters when there is a real network', async () => {
+  const { lanAddresses } = await import('../desktop/discovery.js');
+  const v4 = (address, internal = false) => ({ family: 'IPv4', address, internal });
+  assert.deepEqual(lanAddresses({ lo: [v4('127.0.0.1', true)], vEth: [v4('169.254.130.157')], eth: [v4('192.168.1.41')] }), ['192.168.1.41']);
+  assert.deepEqual(lanAddresses({ vEth: [v4('169.254.1.2')] }), ['169.254.1.2']);
+});

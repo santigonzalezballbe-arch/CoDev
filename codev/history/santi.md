@@ -226,3 +226,8 @@ Tests: 25 passen, 6 fallen igual que abans dels canvis (rutes de Windows amb \ e
 Petició: "Ask to join" no trobava la sala ni amb l'app en primer pla; provar-ho en aquest ordinador.
 Canvis: desktop/discovery.js anunciava la sala per un adaptador virtual (169.254.x.x, "Ethernet 4") en lloc de la xarxa real (192.168.1.41), així que els companys no la sentien o rebien una adreça inaccessible i la sala es descartava en silenci. Ara escolta i anuncia per tots els adaptadors reals (lanAddresses + un socket d'enviament per adaptador). Test a test/discovery.test.js. Provat: host i convidat en dos processos, la sala es troba a 192.168.1.41 i la petició arriba al host en ~50 ms.
 Pendent: provar amb dos ordinadors reals; cal una release nova perquè l'app instal·lada (0.4.22) tingui l'arranjament. Tests: 55 passen, 2 fallen (rutes de Windows, ja fallaven abans).
+
+## 2026-11-25 23:50
+Petició: passar l'arranjament a main i fer la release.
+Canvis: l'arranjament aplicat sobre la 0.4.22 d'origin/main (que ja tenia la notificació d'escriptori; conflictes resolts a discovery.js, main.js i renderer.js, ara amb diverses sales per app); versió 0.4.23 a package.json i package-lock.json; etiqueta v0.4.23. Tests: 63 passen, 2 fallen (rutes de Windows, ja fallaven). Prova host/convidat repetida: OK.
+Pendent: comprovar que l'Action de release acaba i instal·lar la 0.4.23; provar amb dos ordinadors a la mateixa xarxa.
