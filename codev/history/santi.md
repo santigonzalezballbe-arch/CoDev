@@ -231,3 +231,6 @@ Pendent: provar amb dos ordinadors reals; cal una release nova perquè l'app ins
 Petició: passar l'arranjament a main i fer la release.
 Canvis: l'arranjament aplicat sobre la 0.4.22 d'origin/main (que ja tenia la notificació d'escriptori; conflictes resolts a discovery.js, main.js i renderer.js, ara amb diverses sales per app); versió 0.4.23 a package.json i package-lock.json; etiqueta v0.4.23. Tests: 63 passen, 2 fallen (rutes de Windows, ja fallaven). Prova host/convidat repetida: OK.
 Pendent: comprovar que l'Action de release acaba i instal·lar la 0.4.23; provar amb dos ordinadors a la mateixa xarxa.
+
+## 2026-11-25 22:59 — Santi closed the session
+<!-- codev:close ts=1795643993577 -->
