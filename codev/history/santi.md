@@ -240,3 +240,13 @@ Pendent: comprovar que l'Action de release acaba i instal·lar la 0.4.23; provar
 
 ## 2026-11-26 18:53 — Santi opened a session in room "CoDev" (Claude Code)
 <!-- codev:open ts=1795715598634 room="CoDev" name="Santi" -->
+
+## 2026-11-26 19:00
+Petició: demanar confirmació abans de tancar un xat (es tancava sense voler).
+Canvis: desktop/renderer.js, el botó "Close" de la capçalera d'un terminal propi ara crida confirmClose(), que pregunta abans de tancar (avís diferent si la IA encara treballa). El "Close" d'un terminal ja acabat no pregunta.
+Pendent: provar-ho a l'app; cal una release perquè l'app instal·lada ho tingui.
+
+## 2026-11-26 19:10
+Petició: commit i release de la confirmació en tancar.
+Canvis: versió 0.4.24 a package.json i package-lock.json; etiqueta v0.4.24. Tests: 63 passen, 2 fallen (rutes de Windows, ja fallaven).
+Pendent: comprovar que l'Action de release acaba i instal·lar la 0.4.24.

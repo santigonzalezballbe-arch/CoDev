@@ -1979,6 +1979,14 @@ api.onPtyExit((id, code) => {
   p.wrap.append(p.exited);
 });
 
+/** The header's Close button is easy to hit by accident: ask before ending a running session. */
+function confirmClose(p) {
+  const ask = p.state === 'working'
+    ? `${agentLabel(p.agent)} is still working. Close this terminal anyway? The session will end.`
+    : `Close this ${agentLabel(p.agent)} terminal? The session will end.`;
+  if (window.confirm(ask)) closeLocal(p);
+}
+
 function closeLocal(p) {
   api.ptyKill(p.id);
   wsSend({ t: 'term-close', id: p.id });
@@ -2473,7 +2481,7 @@ function updateSide(p) {
     toggle,
     ...[].concat(
     kind === 'local'
-      ? h('button', { class: 'icon-btn', title: 'Close this terminal', onclick: () => closeLocal(p) }, 'Close')
+      ? h('button', { class: 'icon-btn', title: 'Close this terminal', onclick: () => confirmClose(p) }, 'Close')
       : kind === 'guest'
         ? [
             h('span', { class: 'readonly' }, 'running on this computer'),
