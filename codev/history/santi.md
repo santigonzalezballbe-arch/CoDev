@@ -250,3 +250,6 @@ Pendent: provar-ho a l'app; cal una release perquè l'app instal·lada ho tingui
 Petició: commit i release de la confirmació en tancar.
 Canvis: versió 0.4.24 a package.json i package-lock.json; etiqueta v0.4.24. Tests: 63 passen, 2 fallen (rutes de Windows, ja fallaven).
 Pendent: comprovar que l'Action de release acaba i instal·lar la 0.4.24.
+
+## 2026-11-26 18:57 — Santi closed the session
+<!-- codev:close ts=1795715820681 -->
